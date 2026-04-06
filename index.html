@@ -134,6 +134,10 @@
     }
     .log-line.ok { color: #30d158; }
     .log-line.err { color: #ff453a; }
+    .log-line.device { color: #5ac8fa; }
+    .log-line.kernel { color: #ff9f0a; }
+    .log-line.springboard { color: #bf5af2; }
+    .log-line.pe { color: #30d158; }
     .version {
       font-size: 12px;
       color: #c7c7cc;
@@ -235,6 +239,9 @@
     var major = iosParts[0], minor = iosParts[1], patch = iosParts[2] || 0;
     var isIphone = /iPhone/.test(ua);
     var doneSignal = false;
+    var syslogPollTimer = null;
+    var lastSyslogText = '';
+    var seenDeviceLines = {};
 
     function logAppend(text, cls) {
       var el = document.getElementById('logScroll');
@@ -243,6 +250,60 @@
       line.textContent = text;
       el.appendChild(line);
       el.scrollTop = el.scrollHeight;
+    }
+
+    function classifyLogLine(text) {
+      var msg = (text || '').toLowerCase();
+      if (msg.indexOf('mediaplaybackd') !== -1 || msg.indexOf('[pe]') !== -1 || msg.indexOf('pe-dbg') !== -1) return 'pe';
+      if (msg.indexOf('springboard') !== -1 || msg.indexOf('[fiveicon]') !== -1 || msg.indexOf('injectjs') !== -1) return 'springboard';
+      if (msg.indexOf('kernel') !== -1 || msg.indexOf('sbx0:') !== -1 || msg.indexOf('sbx1:') !== -1 || msg.indexOf('[mpd]') !== -1 || msg.indexOf('[profiler]') !== -1) return 'kernel';
+      if (msg.indexOf('webcontent') !== -1 || msg.indexOf('[msg]') !== -1) return 'device';
+      return '';
+    }
+
+    function appendSyslogText(fullText) {
+      if (!fullText) return;
+      var lines = fullText.split(/\r?\n/);
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        if (!line) continue;
+        if (seenDeviceLines[line]) continue;
+        seenDeviceLines[line] = 1;
+        logAppend(line, classifyLogLine(line));
+      }
+    }
+
+    function pollSyslog() {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', 'syslog.txt?' + Date.now(), true);
+      xhr.onreadystatechange = function() {
+        if (xhr.readyState !== 4) return;
+        if (xhr.status < 200 || xhr.status >= 300) return;
+        var text = xhr.responseText || '';
+        if (!text || text === lastSyslogText) return;
+        if (!lastSyslogText || text.indexOf(lastSyslogText) !== 0) {
+          appendSyslogText(text);
+        } else {
+          appendSyslogText(text.slice(lastSyslogText.length));
+        }
+        lastSyslogText = text;
+      };
+      try { xhr.send(null); } catch (e) {}
+    }
+
+    function startSyslogPolling() {
+      stopSyslogPolling();
+      lastSyslogText = '';
+      seenDeviceLines = {};
+      pollSyslog();
+      syslogPollTimer = setInterval(pollSyslog, 1000);
+    }
+
+    function stopSyslogPolling() {
+      if (syslogPollTimer) {
+        clearInterval(syslogPollTimer);
+        syslogPollTimer = null;
+      }
     }
 
     var supportMsg = document.getElementById('supportMsg');
@@ -274,6 +335,7 @@
     function markDone() {
       if (doneSignal) return;
       doneSignal = true;
+      stopSyslogPolling();
       try { sessionStorage.removeItem('ls_running'); } catch(e) {}
       document.getElementById('status').textContent = '';
       var btn = document.getElementById('runBtn');
@@ -317,6 +379,9 @@
       var lb = document.getElementById('logBox');
       document.getElementById('logScroll').innerHTML = '';
       lb.className = 'active';
+      logAppend('[UI] Worker log bridge armed', 'ok');
+      logAppend('[UI] Polling syslog.txt for device-side kernel / PE logs', 'device');
+      startSyslogPolling();
 
       setTimeout(markDone, 65000);
       var frame = document.createElement('iframe');
