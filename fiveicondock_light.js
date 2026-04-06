@@ -485,10 +485,9 @@
 
     log("loaded jsctx=0x" + u64(bi.jsctx).toString(16) + " jsContextObj=0x" + u64(bi.jsContextObj).toString(16));
     runOnMainEvaluate("try{__fiveicon_apply_once('main-pass-1');}catch(e){__fiveicon_log('main-pass-1 err: '+e);}");
-    Native.callSymbol("usleep", 3000000);
     if (ENABLE_SECOND_PASS) {
+      Native.callSymbol("usleep", 1200000);
       runOnMainEvaluate("try{__fiveicon_apply_once('main-pass-2');}catch(e){__fiveicon_log('main-pass-2 err: '+e);}");
-      Native.callSymbol("usleep", 3000000);
     }
   } catch (e) {
     log("fatal: " + String(e));
