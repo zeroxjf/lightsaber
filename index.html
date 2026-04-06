@@ -188,12 +188,13 @@
       <div class="page-subtitle">iOS research tool(s)? 👀</div>
     </div>
 
+    <div class="warning">
+      <strong>Test devices recommended.</strong> Derived from the <a href="https://iverify.io/blog/darksword-ios-exploit-kit-explained">DarkSword</a> exploit chain with all C2 stripped and <a href="https://github.com/zeroxjf/zeroxjf.github.io/tree/main/lightsaber">source reviewed</a>. Expect crashes, resprings, and kernel panics. ~60-70% success rate. Use at your own risk.
+    </div>
+
     <div class="section">
       <div class="section-title">FiveIconDock</div>
       <p class="section-desc">5 icons on your dock, no jailbreak required</p>
-      <div class="warning">
-        <strong>Test devices recommended.</strong> Derived from the <a href="https://iverify.io/blog/darksword-ios-exploit-kit-explained">DarkSword</a> exploit chain with all C2 stripped and <a href="https://github.com/zeroxjf/zeroxjf.github.io/tree/main/lightsaber">source reviewed</a>. Expect crashes, resprings, and kernel panics. ~60-70% success rate. Use at your own risk.
-      </div>
       <div class="info">
         <strong>Supported:</strong> iPhone, iOS 18.4 &ndash; 18.6.2 (more coming soon)
       </div>
@@ -242,6 +243,8 @@
     var syslogPollTimer = null;
     var lastSyslogText = '';
     var seenDeviceLines = {};
+    var syslogCandidates = ['syslog.txt', '../syslog.txt', '/syslog.txt', '/lightsaber/syslog.txt'];
+    var activeSyslogPath = null;
 
     function logAppend(text, cls) {
       var el = document.getElementById('logScroll');
@@ -273,28 +276,53 @@
       }
     }
 
-    function pollSyslog() {
+    function handleSyslogResponse(path, text) {
+      if (!text) return false;
+      if (!activeSyslogPath) {
+        activeSyslogPath = path;
+        logAppend('[UI] Using syslog source: ' + path, 'device');
+      }
+      if (text === lastSyslogText) return true;
+      if (!lastSyslogText || text.indexOf(lastSyslogText) !== 0) {
+        appendSyslogText(text);
+      } else {
+        appendSyslogText(text.slice(lastSyslogText.length));
+      }
+      lastSyslogText = text;
+      return true;
+    }
+
+    function tryPollSyslogAt(index) {
+      if (index >= syslogCandidates.length) return;
+      var path = syslogCandidates[index];
       var xhr = new XMLHttpRequest();
-      xhr.open('GET', 'syslog.txt?' + Date.now(), true);
+      xhr.open('GET', path + '?' + Date.now(), true);
       xhr.onreadystatechange = function() {
         if (xhr.readyState !== 4) return;
-        if (xhr.status < 200 || xhr.status >= 300) return;
-        var text = xhr.responseText || '';
-        if (!text || text === lastSyslogText) return;
-        if (!lastSyslogText || text.indexOf(lastSyslogText) !== 0) {
-          appendSyslogText(text);
-        } else {
-          appendSyslogText(text.slice(lastSyslogText.length));
+        if (xhr.status >= 200 && xhr.status < 300) {
+          var text = xhr.responseText || '';
+          if (handleSyslogResponse(path, text)) return;
         }
-        lastSyslogText = text;
+        if (!activeSyslogPath) tryPollSyslogAt(index + 1);
       };
-      try { xhr.send(null); } catch (e) {}
+      try { xhr.send(null); } catch (e) {
+        if (!activeSyslogPath) tryPollSyslogAt(index + 1);
+      }
+    }
+
+    function pollSyslog() {
+      if (activeSyslogPath) {
+        tryPollSyslogAt(syslogCandidates.indexOf(activeSyslogPath) >= 0 ? syslogCandidates.indexOf(activeSyslogPath) : 0);
+      } else {
+        tryPollSyslogAt(0);
+      }
     }
 
     function startSyslogPolling() {
       stopSyslogPolling();
       lastSyslogText = '';
       seenDeviceLines = {};
+      activeSyslogPath = null;
       pollSyslog();
       syslogPollTimer = setInterval(pollSyslog, 1000);
     }
