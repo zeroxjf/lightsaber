@@ -402,7 +402,7 @@
     const jsctxObj = globalThis.__fiveicon_jsctx_obj;
     if (!isNonZero(jsctxObj)) return false;
     const s = cfstr(script);
-    objc(jsctxObj, "performSelectorOnMainThread:withObject:waitUntilDone:", sel("evaluateScript:"), s, 0);
+    objc(jsctxObj, "performSelectorOnMainThread:withObject:waitUntilDone:", sel("evaluateScript:"), s, 1);
     Native.callSymbol("CFRelease", s);
     return true;
   }
