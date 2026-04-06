@@ -105,16 +105,21 @@
       border-radius: 8px;
       padding: 10px 12px;
       margin-top: 12px;
-      max-height: 180px;
-      overflow-y: auto;
+      max-height: 240px;
+      overflow-y: scroll;
+      overflow-x: hidden;
       font-family: 'SF Mono', SFMono-Regular, Menlo, monospace;
-      font-size: 11px;
-      line-height: 1.5;
+      font-size: 10px;
+      line-height: 1.4;
       color: #86868b;
       -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      margin-left: -20px;
+      margin-right: -20px;
+      border-radius: 0;
     }
     .log-panel.active { display: block; }
-    .log-line { white-space: pre-wrap; word-break: break-all; }
+    .log-line { white-space: pre; overflow-x: hidden; text-overflow: ellipsis; padding: 1px 0; }
     .log-line.highlight { color: #34c759; }
     .version {
       font-size: 12px;
