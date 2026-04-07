@@ -328,16 +328,23 @@
       log("newInvocationFromTarget: NSInvocation class missing");
       return 0n;
     }
-    // Prefer alloc/init over +invocationWithMethodSignature: so we do not rely
-    // on autorelease return-value behavior inside this cross-thread JS bridge.
-    const invAlloc = objc(invClass, "alloc");
-    if (!isNonZero(invAlloc)) {
-      log("newInvocationFromTarget: NSInvocation alloc failed for " + selectorName);
+    if (!requireSelector(invClass, "invocationWithMethodSignature:", "NSInvocation(class)")) {
+      log("newInvocationFromTarget: NSInvocation missing invocationWithMethodSignature:");
       return 0n;
     }
-    const inv = objc(invAlloc, "initWithMethodSignature:", sig);
+    const inv = objc(invClass, "invocationWithMethodSignature:", sig);
     if (!isNonZero(inv)) {
-      log("newInvocationFromTarget: initWithMethodSignature failed for " + selectorName);
+      log("newInvocationFromTarget: invocationWithMethodSignature failed for " + selectorName);
+      return 0n;
+    }
+    // Pin the invocation object lifetime explicitly for this no-ARC JS bridge.
+    if (canRespond(inv, "retain")) objc(inv, "retain");
+    if (!requireSelector(inv, "setTarget:", "NSInvocation(instance)")) {
+      log("newInvocationFromTarget: invocation missing setTarget:");
+      return 0n;
+    }
+    if (!requireSelector(inv, "setSelector:", "NSInvocation(instance)")) {
+      log("newInvocationFromTarget: invocation missing setSelector:");
       return 0n;
     }
     probe("newInvocationFromTarget sel=" + selectorName + " target=0x" + u64(target).toString(16) + " inv=0x" + u64(inv).toString(16));
