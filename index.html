@@ -881,7 +881,14 @@
       startSyslogPolling();
       */
 
-      setTimeout(markDone, 65000);
+      // Match the upstream DarkSword install button: just a 60-second
+      // setTimeout fallback plus a postMessage listener for the iframe's
+      // explicit "lightsaber_done" signal. No active contentWindow polling -
+      // iOS Safari's cross-origin / detached-frame access semantics aren't
+      // reliable across versions, and the upstream chain expects the user to
+      // notice that "Safari froze/crashed/reloaded means it worked" anyway.
+      setTimeout(markDone, 60000);
+
       // Encode each tweak name individually so the comma between names stays
       // a literal "," in the URL instead of becoming "%2C". rce_loader.js's
       // URLSearchParams parser handles either form, but a literal comma is
@@ -889,18 +896,13 @@
       var encodedTweaks = tweaks.map(function(t) { return encodeURIComponent(t); }).join(',');
       var frame = document.createElement('iframe');
       frame.src = 'frame.html?tweaks=' + encodedTweaks + '&level=' + encodeURIComponent(level) + '&_=' + Math.random();
-      frame.style.cssText = 'width:1px;height:1px;opacity:0.01;position:absolute;left:-9999px;border:none';
+      frame.style.width = '1px';
+      frame.style.height = '1px';
+      frame.style.opacity = '0.01';
+      frame.style.position = 'absolute';
+      frame.style.left = '-9999px';
+      frame.style.border = 'none';
       document.body.appendChild(frame);
-
-      // WebContent crash = exploit progressed past RCE stage, treat as success
-      var crashCheck = setInterval(function() {
-        if (doneSignal) { clearInterval(crashCheck); return; }
-        try {
-          // Accessing contentWindow throws or returns null when WebContent dies
-          var w = frame.contentWindow;
-          if (!w || !w.document) { markDone(); clearInterval(crashCheck); }
-        } catch(e) { markDone(); clearInterval(crashCheck); }
-      }, 2000);
     }
 
   </script>
