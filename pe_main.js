@@ -8416,6 +8416,10 @@ const SPRINGBOARD_JS_TWEAK_LABEL = "FiveIconDock JS";
 const ENABLE_POWERCUFF_TWEAK = !!globalThis.__ls_enable_powercuff;
 const POWERCUFF_TWEAK_PATH = "/powercuff_light.js";
 const POWERCUFF_TWEAK_LABEL = "Powercuff";
+// fiveicondock_light.js dispatches to SpringBoard main thread asynchronously.
+// When FiveIconDock is selected without Powercuff, keep the chain alive briefly
+// so the dispatched main-thread patch has time to run before task teardown.
+const FIVEICON_ONLY_SETTLE_DELAY_USEC = 1500000n;
 const ENABLE_UNRELATED_DUMPS = false;
 const ENABLE_KEYCHAIN_DUMP = false;
 const ENABLE_WIFI_DUMP = false;
@@ -8677,10 +8681,15 @@ function start() { LOG("[+] PE start() called");
 				injectCorunaTweakloader(agentLoader.task, migFilterBypass, agentPid);
 			else
 				LOG("[PE] Coruna tweakloader disabled");
+			let springboardTweakInjected = false;
 			if (ENABLE_SPRINGBOARD_JS_TWEAK)
-				injectLightweightSpringBoardPayload(agentLoader.task, migFilterBypass, agentPid, SPRINGBOARD_JS_TWEAK_PATH, SPRINGBOARD_JS_TWEAK_LABEL);
+				springboardTweakInjected = injectLightweightSpringBoardPayload(agentLoader.task, migFilterBypass, agentPid, SPRINGBOARD_JS_TWEAK_PATH, SPRINGBOARD_JS_TWEAK_LABEL);
 			else
 				LOG("[PE] SpringBoard JS tweak disabled");
+			if (springboardTweakInjected && !ENABLE_POWERCUFF_TWEAK && FIVEICON_ONLY_SETTLE_DELAY_USEC > 0n) {
+				LOG("[PE] FiveIcon-only mode: waiting " + FIVEICON_ONLY_SETTLE_DELAY_USEC.toString() + " usec for async main-thread dispatch to settle");
+				libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"].callSymbol("usleep", FIVEICON_ONLY_SETTLE_DELAY_USEC);
+			}
 
 			agentLoader.destroy();
 		}
