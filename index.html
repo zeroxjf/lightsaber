@@ -339,6 +339,30 @@
       border-color: #1d1d1f;
       background: #f5f5f7;
     }
+    .tweak-row.disabled {
+      opacity: 0.55;
+      background: #fafafa;
+    }
+    .tweak-row.disabled .tweak-row-head {
+      cursor: not-allowed;
+    }
+    .tweak-row.disabled input[type="checkbox"] {
+      cursor: not-allowed;
+    }
+    .tweak-row-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+      color: #92400e;
+      background: #fef3c7;
+      border: 1px solid #f59e0b;
+      border-radius: 999px;
+      padding: 1px 7px;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
     .tweak-row-head {
       display: flex;
       align-items: flex-start;
@@ -467,6 +491,16 @@
               <option value="heavy" selected>Heavy</option>
             </select>
           </div>
+        </div>
+
+        <div class="tweak-row disabled" id="tweakRowTrollspeed">
+          <label class="tweak-row-head">
+            <input type="checkbox" id="tweakTrollspeed" disabled>
+            <div class="tweak-row-meta">
+              <div class="tweak-row-name">TrollSpeed &mdash; bandwidth HUD <span class="tweak-row-badge">Experimental &mdash; not ready</span></div>
+              <div class="tweak-row-desc">Persistent up/down speed overlay near the top of the screen. Port of <a href="https://github.com/Lessica/TrollSpeed">Lessica's TrollSpeed</a>. Wired into the chain but not yet shipped &mdash; check back soon.</div>
+            </div>
+          </label>
         </div>
       </div>
 
@@ -723,7 +757,8 @@
     // options (e.g. Powercuff level) slide into view.
     var tweakRows = [
       { rowId: 'tweakRowFiveicon', cbId: 'tweakFiveicon', name: 'fiveicon' },
-      { rowId: 'tweakRowPowercuff', cbId: 'tweakPowercuff', name: 'powercuff' }
+      { rowId: 'tweakRowPowercuff', cbId: 'tweakPowercuff', name: 'powercuff' },
+      { rowId: 'tweakRowTrollspeed', cbId: 'tweakTrollspeed', name: 'trollspeed' }
     ];
     function syncTweakRow(row) {
       var el = document.getElementById(row.rowId);
@@ -751,11 +786,18 @@
 
     window.scrollTo(0, 0);
 
+    // Tweaks that are wired into the chain end-to-end but not yet shipped to
+    // users. Their checkboxes are rendered as `disabled` in the DOM, but if a
+    // user manages to flip them via DevTools we still strip them out here so
+    // they can never reach runExploit / the iframe URL.
+    var EXPERIMENTAL_TWEAKS = { trollspeed: 1 };
     function gatherSelection() {
       var tweaks = [];
       for (var i = 0; i < tweakRows.length; i++) {
+        var name = tweakRows[i].name;
+        if (EXPERIMENTAL_TWEAKS[name]) continue;
         var cb = document.getElementById(tweakRows[i].cbId);
-        if (cb && cb.checked) tweaks.push(tweakRows[i].name);
+        if (cb && cb.checked) tweaks.push(name);
       }
       var levelSel = document.getElementById('powercuffLevel');
       var level = levelSel ? levelSel.value : 'heavy';

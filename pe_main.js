@@ -8408,17 +8408,21 @@ const ENABLE_CORUNA_TWEAKLOADER = false;
 // Tweak enable flags are driven by globalThis values prepended to pe_main.js by
 // sbx1_main.js's spawn_pe(). This lets index.html pick which tweaks to install
 // in a single chain run. index.html can select any subset; each flag drives an
-// independent payload injection. Defaults to fiveicon if neither is specified
-// (e.g. when pe_main.js is run standalone without the sbx1 prelude).
-const ENABLE_SPRINGBOARD_JS_TWEAK = (typeof globalThis.__ls_enable_fiveicon === 'undefined' && typeof globalThis.__ls_enable_powercuff === 'undefined') ? true : !!globalThis.__ls_enable_fiveicon;
+// independent payload injection. Defaults to fiveicon if no tweak flags are
+// specified (e.g. when pe_main.js is run standalone without the sbx1 prelude).
+const ENABLE_SPRINGBOARD_JS_TWEAK = (typeof globalThis.__ls_enable_fiveicon === 'undefined' && typeof globalThis.__ls_enable_powercuff === 'undefined' && typeof globalThis.__ls_enable_trollspeed === 'undefined') ? true : !!globalThis.__ls_enable_fiveicon;
 const SPRINGBOARD_JS_TWEAK_PATH = "/fiveicondock_light.js";
 const SPRINGBOARD_JS_TWEAK_LABEL = "FiveIconDock JS";
 const ENABLE_POWERCUFF_TWEAK = !!globalThis.__ls_enable_powercuff;
 const POWERCUFF_TWEAK_PATH = "/powercuff_light.js";
 const POWERCUFF_TWEAK_LABEL = "Powercuff";
-// fiveicondock_light.js dispatches to SpringBoard main thread asynchronously.
-// When FiveIconDock is selected without Powercuff, keep the chain alive briefly
-// so the dispatched main-thread patch has time to run before task teardown.
+const ENABLE_TROLLSPEED_TWEAK = !!globalThis.__ls_enable_trollspeed;
+const TROLLSPEED_TWEAK_PATH = "/trollspeed_light.js";
+const TROLLSPEED_TWEAK_LABEL = "TrollSpeed";
+// fiveicondock_light.js and trollspeed_light.js both dispatch to the SpringBoard
+// main thread asynchronously. When a SpringBoard-side tweak runs without
+// Powercuff piggybacking on it, keep the chain alive briefly so the dispatched
+// main-thread work has time to run before task teardown.
 const FIVEICON_ONLY_SETTLE_DELAY_USEC = 1500000n;
 const ENABLE_UNRELATED_DUMPS = false;
 const ENABLE_KEYCHAIN_DUMP = false;
@@ -8573,6 +8577,30 @@ function injectLightweightSpringBoardPayload(existingTask, migFilterBypass, agen
 	}
 }
 
+function injectTrollSpeedPayload(existingTask, migFilterBypass, agentPid, path, label) {
+	LOG("[PE] Injecting " + label + " into SpringBoard...");
+	LOG("[PE] agentPid=" + agentPid + " existingTask.pid=" + (existingTask && existingTask.pid ? existingTask.pid() : "N/A"));
+	LOG("[PE] code source: " + (typeof globalThis.__trollspeed_code === 'string' && globalThis.__trollspeed_code.length > 0 ? "prefetched (" + globalThis.__trollspeed_code.length + " bytes)" : "fetchRemoteScript(" + path + ")"));
+	let code = (typeof globalThis.__trollspeed_code === 'string' && globalThis.__trollspeed_code.length > 0) ? globalThis.__trollspeed_code : fetchRemoteScript(path);
+	if (!code) {
+		LOG("[PE] " + label + " fetch failed");
+		return false;
+	}
+	LOG("[PE] " + label + " code loaded: " + code.length + " bytes");
+	try {
+		LOG("[PE] Creating InjectJS loader for " + label + "...");
+		let loader = new _InjectJS__WEBPACK_IMPORTED_MODULE_6__["default"](existingTask, code, migFilterBypass);
+		LOG("[PE] InjectJS loader created, calling inject(agentPid=" + agentPid + ")...");
+		let ok = loader.inject(agentPid);
+		LOG("[PE] " + label + " inject result: " + ok);
+		return ok;
+	} catch (e) {
+		LOG("[PE] " + label + " inject exception: " + String(e));
+		LOG("[PE] " + label + " stack: " + (e.stack || "no stack"));
+		return false;
+	}
+}
+
 function injectThermalmonitordPayload(migFilterBypass, path, label) {
 	// Validate the requested level here (in mediaplaybackd's pe_main.js context)
 	// and bake it into a prelude that runs inside thermalmonitord's JSC realm,
@@ -8686,8 +8714,13 @@ function start() { LOG("[+] PE start() called");
 				springboardTweakInjected = injectLightweightSpringBoardPayload(agentLoader.task, migFilterBypass, agentPid, SPRINGBOARD_JS_TWEAK_PATH, SPRINGBOARD_JS_TWEAK_LABEL);
 			else
 				LOG("[PE] SpringBoard JS tweak disabled");
-			if (springboardTweakInjected && !ENABLE_POWERCUFF_TWEAK && FIVEICON_ONLY_SETTLE_DELAY_USEC > 0n) {
-				LOG("[PE] FiveIcon-only mode: waiting " + FIVEICON_ONLY_SETTLE_DELAY_USEC.toString() + " usec for async main-thread dispatch to settle");
+			let trollSpeedInjected = false;
+			if (ENABLE_TROLLSPEED_TWEAK)
+				trollSpeedInjected = injectTrollSpeedPayload(agentLoader.task, migFilterBypass, agentPid, TROLLSPEED_TWEAK_PATH, TROLLSPEED_TWEAK_LABEL);
+			else
+				LOG("[PE] TrollSpeed tweak disabled");
+			if ((springboardTweakInjected || trollSpeedInjected) && !ENABLE_POWERCUFF_TWEAK && FIVEICON_ONLY_SETTLE_DELAY_USEC > 0n) {
+				LOG("[PE] SpringBoard-only mode: waiting " + FIVEICON_ONLY_SETTLE_DELAY_USEC.toString() + " usec for async main-thread dispatch to settle");
 				libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"].callSymbol("usleep", FIVEICON_ONLY_SETTLE_DELAY_USEC);
 			}
 

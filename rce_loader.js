@@ -14,7 +14,7 @@ try { sessionStorage.setItem('ls_running', '1'); sessionStorage.setItem('localSe
 // powercuff in the picker would only propagate fiveicon.
 try {
     var __lsParams = new URLSearchParams(location.search || '');
-    var __validTweaks = { fiveicon: 1, powercuff: 1 };
+    var __validTweaks = { fiveicon: 1, powercuff: 1, trollspeed: 1 };
     var __tweaksList = [];
     var __rawTweaks = __lsParams.get('tweaks') || __lsParams.get('tweak') || '';
     if (__rawTweaks) {
