@@ -223,7 +223,9 @@ let workerBlobUrl = URL.createObjectURL(workerBlob);
                 print("[MSG] sign_pointers");
                 iframe.contentDocument.write('1');
                 worker.postMessage({
-                type: 'setup_fcall'
+                type: 'setup_fcall',
+                ls_tweaks: globalThis.__ls_tweaks || 'fiveicon',
+                ls_powercuff_level: globalThis.__ls_powercuff_level || 'heavy'
                 });
                 break;
             }
@@ -300,9 +302,7 @@ let workerBlobUrl = URL.createObjectURL(workerBlob);
                     type: 'stage1_rce',
                     desiredHost,
                     randomValues,
-                    SERVER_LOG,
-                    ls_tweaks: globalThis.__ls_tweaks || 'fiveicon',
-                    ls_powercuff_level: globalThis.__ls_powercuff_level || 'heavy'
+                    SERVER_LOG
                 });
             }
             else
@@ -328,9 +328,7 @@ let workerBlobUrl = URL.createObjectURL(workerBlob);
                         chipset,
                         device_model,
                         desiredHost,
-                        SERVER_LOG,
-                        ls_tweaks: globalThis.__ls_tweaks || 'fiveicon',
-                        ls_powercuff_level: globalThis.__ls_powercuff_level || 'heavy'
+                        SERVER_LOG
                 });
                             }
                         });
@@ -348,9 +346,7 @@ let workerBlobUrl = URL.createObjectURL(workerBlob);
                 chipset,
                 device_model,
                 desiredHost,
-                SERVER_LOG,
-                ls_tweaks: globalThis.__ls_tweaks || 'fiveicon',
-                ls_powercuff_level: globalThis.__ls_powercuff_level || 'heavy'
+                SERVER_LOG
             });
                     }
         });

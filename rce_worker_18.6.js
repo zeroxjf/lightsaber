@@ -9897,6 +9897,9 @@ async function main() {
         }
       case 'setup_fcall':
         {
+          try { globalThis.__ls_tweaks = (typeof data.ls_tweaks === 'string' && data.ls_tweaks.length > 0) ? data.ls_tweaks : 'fiveicon'; } catch (e) { globalThis.__ls_tweaks = 'fiveicon'; }
+          try { globalThis.__powercuff_level = (typeof data.ls_powercuff_level === 'string' && data.ls_powercuff_level.length > 0) ? data.ls_powercuff_level : 'heavy'; } catch (e) { globalThis.__powercuff_level = 'heavy'; }
+          print("inside setup_fcall, tweaks=" + globalThis.__ls_tweaks + " level=" + globalThis.__powercuff_level);
           const {
             offsets
           } = p;
@@ -10200,9 +10203,7 @@ async function main() {
         {
             host = data.desiredHost;
             SERVER_LOG = data.SERVER_LOG;
-            try { globalThis.__ls_tweaks = (typeof data.ls_tweaks === 'string' && data.ls_tweaks.length > 0) ? data.ls_tweaks : 'fiveicon'; } catch (e) { globalThis.__ls_tweaks = 'fiveicon'; }
-            try { globalThis.__powercuff_level = (typeof data.ls_powercuff_level === 'string' && data.ls_powercuff_level.length > 0) ? data.ls_powercuff_level : 'heavy'; } catch (e) { globalThis.__powercuff_level = 'heavy'; }
-            print("inside stage1_rce from worker, tweaks=" + globalThis.__ls_tweaks + " level=" + globalThis.__powercuff_level);
+            print("inside stage1_rce from worker");
             main().then(async (p_temp) => {
               if(!p_temp.addrof)
               {
