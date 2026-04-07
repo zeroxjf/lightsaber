@@ -107,41 +107,82 @@
       margin-top: 10px;
       line-height: 1.6;
     }
-    .warning {
-      background: #fef2f2;
-      border: 1px solid #f87171;
+    .warning, .disclaimer, .caution {
       border-radius: 10px;
       padding: 10px 12px;
       margin-bottom: 12px;
       font-size: 12px;
-      color: #991b1b;
       line-height: 1.6;
+    }
+    .warning {
+      background: #fef2f2;
+      border: 1px solid #f87171;
+      color: #991b1b;
     }
     .warning strong { color: #7f1d1d; font-weight: 700; }
     .warning a { color: #dc2626; text-decoration: underline; }
     .disclaimer {
       background: #fefce8;
       border: 1px solid #facc15;
-      border-radius: 10px;
-      padding: 10px 12px;
-      margin-bottom: 12px;
-      font-size: 12px;
       color: #713f12;
-      line-height: 1.6;
     }
     .disclaimer strong { color: #422006; font-weight: 700; }
     .caution {
       background: #ffedd5;
       border: 1px solid #ea580c;
-      border-radius: 10px;
-      padding: 10px 12px;
-      margin-bottom: 12px;
-      font-size: 12px;
       color: #7c2d12;
-      line-height: 1.6;
     }
     .caution strong { color: #431407; font-weight: 700; }
     .caution a { color: #c2410c; text-decoration: underline; }
+    /* Collapsible <details>/<summary> versions of the three warning boxes
+       on the page itself. The intro overlay still shows the full text;
+       these inline boxes start collapsed and can be tapped to expand. */
+    details.warning, details.disclaimer, details.caution {
+      cursor: pointer;
+    }
+    details.warning summary,
+    details.disclaimer summary,
+    details.caution summary {
+      list-style: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      outline: none;
+    }
+    details.warning summary::-webkit-details-marker,
+    details.disclaimer summary::-webkit-details-marker,
+    details.caution summary::-webkit-details-marker {
+      display: none;
+    }
+    details.warning summary::after,
+    details.disclaimer summary::after,
+    details.caution summary::after {
+      content: "+";
+      flex: 0 0 auto;
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1;
+      width: 16px;
+      height: 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      opacity: 0.7;
+    }
+    details[open].warning summary::after,
+    details[open].disclaimer summary::after,
+    details[open].caution summary::after {
+      content: "\2212"; /* minus sign */
+    }
+    details.warning .details-body,
+    details.disclaimer .details-body,
+    details.caution .details-body {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px dashed currentColor;
+    }
     .info {
       font-size: 12px;
       color: #86868b;
@@ -230,6 +271,32 @@
     }
     .btn-cancel { background: #f5f5f7; color: #6e6e73; }
     .btn-confirm { background: #1d1d1f; color: #fff; }
+    .dialog.intro {
+      max-width: 400px;
+      max-height: 88vh;
+      overflow-y: auto;
+      text-align: left;
+      padding: 24px 20px 20px;
+    }
+    .dialog.intro h2 {
+      text-align: center;
+      color: #1d1d1f;
+      margin-bottom: 6px;
+    }
+    .dialog.intro .intro-sub {
+      text-align: center;
+      font-size: 13px;
+      color: #86868b;
+      margin-bottom: 16px;
+    }
+    .dialog.intro .disclaimer,
+    .dialog.intro .caution,
+    .dialog.intro .warning {
+      margin-bottom: 10px;
+    }
+    .dialog.intro .dialog-btns {
+      margin-top: 6px;
+    }
     .level-list {
       display: flex;
       flex-direction: column;
@@ -360,17 +427,26 @@
       </div>
     </div>
 
-    <div class="disclaimer">
-      <strong>This is not tweak injection.</strong> This is JavaScript injection during the exploit chain that modifies processes at runtime. While changes persist until respring or reboot, this is not a standard dylib injection found with a full jailbreak &mdash; it is limited in nature and only some things can be done with it.
-    </div>
+    <details class="disclaimer">
+      <summary><strong>Not tweak injection</strong> &mdash; runtime JS modification only</summary>
+      <div class="details-body">
+        This is JavaScript injection during the exploit chain that modifies processes at runtime. While changes persist until respring or reboot, this is not a standard dylib injection found with a full jailbreak &mdash; it is limited in nature and only some things can be done with it.
+      </div>
+    </details>
 
-    <div class="caution">
-      <strong>Compatibility warning.</strong> This may cause compatibility issues with modifications made by <a href="https://github.com/leminlimez/Nugget" target="_blank" rel="noopener">Nugget</a> and other similar tools. While I will work on resolving this, keep this in mind in the interim.
-    </div>
+    <details class="caution">
+      <summary><strong>Compatibility warning</strong> &mdash; may conflict with Nugget</summary>
+      <div class="details-body">
+        This may cause compatibility issues with modifications made by <a href="https://github.com/leminlimez/Nugget" target="_blank" rel="noopener">Nugget</a> and other similar tools. While I will work on resolving this, keep this in mind in the interim.
+      </div>
+    </details>
 
-    <div class="warning">
-      <strong>Use caution.</strong> Derived from the <a href="https://iverify.io/blog/darksword-ios-exploit-kit-explained">DarkSword</a> exploit chain with all malware communication stripped and <a href="https://github.com/zeroxjf/zeroxjf.github.io/tree/main/lightsaber">fully open source</a>, but this is an inherently unstable chain and is <strong>not recommended for deployment on a daily driver</strong> unless you are willing to accept the risk. The chain may take several tries to succeed, SpringBoard may crash, the kernel may panic. Use at your own risk &mdash; I am not liable for any damage or data loss.
-    </div>
+    <details class="warning">
+      <summary><strong>Use caution</strong> &mdash; unstable, not for daily drivers</summary>
+      <div class="details-body">
+        Derived from the <a href="https://iverify.io/blog/darksword-ios-exploit-kit-explained">DarkSword</a> exploit chain with all malware communication stripped and <a href="https://github.com/zeroxjf/zeroxjf.github.io/tree/main/lightsaber">fully open source</a>, but this is an inherently unstable chain and is <strong>not recommended for deployment on a daily driver</strong> unless you are willing to accept the risk. The chain may take several tries to succeed, SpringBoard may crash, the kernel may panic. Use at your own risk &mdash; I am not liable for any damage or data loss.
+      </div>
+    </details>
 
     <div class="section">
       <div class="section-title">Install "tweaks"</div>
@@ -436,6 +512,25 @@
     <p class="version">v0.0.25</p>
   </div>
 
+  <div id="introOverlay" class="overlay">
+    <div class="dialog intro">
+      <h2>Before you continue</h2>
+      <p class="intro-sub">Please read the following before using LightSaber.</p>
+      <div class="disclaimer">
+        <strong>This is not tweak injection.</strong> This is JavaScript injection during the exploit chain that modifies processes at runtime. While changes persist until respring or reboot, this is not a standard dylib injection found with a full jailbreak &mdash; it is limited in nature and only some things can be done with it.
+      </div>
+      <div class="caution">
+        <strong>Compatibility warning.</strong> This may cause compatibility issues with modifications made by <a href="https://github.com/leminlimez/Nugget" target="_blank" rel="noopener">Nugget</a> and other similar tools. While I will work on resolving this, keep this in mind in the interim.
+      </div>
+      <div class="warning">
+        <strong>Use caution.</strong> Derived from the <a href="https://iverify.io/blog/darksword-ios-exploit-kit-explained">DarkSword</a> exploit chain with all malware communication stripped and <a href="https://github.com/zeroxjf/zeroxjf.github.io/tree/main/lightsaber">fully open source</a>, but this is an inherently unstable chain and is <strong>not recommended for deployment on a daily driver</strong> unless you are willing to accept the risk. The chain may take several tries to succeed, SpringBoard may crash, the kernel may panic. Use at your own risk &mdash; I am not liable for any damage or data loss.
+      </div>
+      <div class="dialog-btns">
+        <button class="btn-confirm" onclick="dismissIntro()">I understand</button>
+      </div>
+    </div>
+  </div>
+
   <div id="confirmOverlay" class="overlay">
     <div class="dialog">
       <h2>Are you sure?</h2>
@@ -465,6 +560,22 @@
   </div>
 
   <script>
+    // Show the intro warnings overlay on first visit per session. Persists
+    // dismissal in sessionStorage so users don't get re-prompted on every
+    // navigation, but it does come back if they fully close + reopen Safari.
+    (function() {
+      var dismissed = false;
+      try { dismissed = sessionStorage.getItem('ls_intro_dismissed') === '1'; } catch(e) {}
+      if (!dismissed) {
+        var el = document.getElementById('introOverlay');
+        if (el) el.className = 'overlay active';
+      }
+    })();
+    function dismissIntro() {
+      try { sessionStorage.setItem('ls_intro_dismissed', '1'); } catch(e) {}
+      var el = document.getElementById('introOverlay');
+      if (el) el.className = 'overlay';
+    }
     var ua = navigator.userAgent;
     var iosMatch = /iPhone OS ([0-9_]+)/g.exec(ua);
     var iosVer = iosMatch ? iosMatch[1].replace(/_/g, '.') : null;
@@ -738,7 +849,7 @@
       frame.style.cssText = 'width:1px;height:1px;opacity:0.01;position:absolute;left:-9999px;border:none';
       document.body.appendChild(frame);
 
-      // WebContent crash = exploit progressed past RCE stage — treat as success
+      // WebContent crash = exploit progressed past RCE stage, treat as success
       var crashCheck = setInterval(function() {
         if (doneSignal) { clearInterval(crashCheck); return; }
         try {
