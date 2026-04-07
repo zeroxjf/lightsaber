@@ -339,15 +339,13 @@
       border-color: #1d1d1f;
       background: #f5f5f7;
     }
-    .tweak-row.disabled {
-      opacity: 0.55;
+    .tweak-row.experimental {
+      opacity: 0.6;
       background: #fafafa;
     }
-    .tweak-row.disabled .tweak-row-head {
-      cursor: not-allowed;
-    }
-    .tweak-row.disabled input[type="checkbox"] {
-      cursor: not-allowed;
+    .tweak-row.experimental.checked {
+      opacity: 1;
+      background: #f5f5f7;
     }
     .tweak-row-badge {
       display: inline-block;
@@ -493,12 +491,12 @@
           </div>
         </div>
 
-        <div class="tweak-row disabled" id="tweakRowTrollspeed">
+        <div class="tweak-row experimental" id="tweakRowTrollspeed">
           <label class="tweak-row-head">
-            <input type="checkbox" id="tweakTrollspeed" disabled>
+            <input type="checkbox" id="tweakTrollspeed">
             <div class="tweak-row-meta">
-              <div class="tweak-row-name">TrollSpeed &mdash; bandwidth HUD <span class="tweak-row-badge">Experimental &mdash; not ready</span></div>
-              <div class="tweak-row-desc">Persistent up/down speed overlay near the top of the screen. Port of <a href="https://github.com/Lessica/TrollSpeed">Lessica's TrollSpeed</a>. Wired into the chain but not yet shipped &mdash; check back soon.</div>
+              <div class="tweak-row-name">TrollSpeed &mdash; bandwidth HUD <span class="tweak-row-badge">Experimental</span></div>
+              <div class="tweak-row-desc">Persistent up/down speed overlay near the top of the screen. Port of <a href="https://github.com/Lessica/TrollSpeed">Lessica's TrollSpeed</a>. Lasts until respring. Still in testing &mdash; may not work or may glitch the SpringBoard UI.</div>
             </div>
           </label>
         </div>
@@ -786,18 +784,11 @@
 
     window.scrollTo(0, 0);
 
-    // Tweaks that are wired into the chain end-to-end but not yet shipped to
-    // users. Their checkboxes are rendered as `disabled` in the DOM, but if a
-    // user manages to flip them via DevTools we still strip them out here so
-    // they can never reach runExploit / the iframe URL.
-    var EXPERIMENTAL_TWEAKS = { trollspeed: 1 };
     function gatherSelection() {
       var tweaks = [];
       for (var i = 0; i < tweakRows.length; i++) {
-        var name = tweakRows[i].name;
-        if (EXPERIMENTAL_TWEAKS[name]) continue;
         var cb = document.getElementById(tweakRows[i].cbId);
-        if (cb && cb.checked) tweaks.push(name);
+        if (cb && cb.checked) tweaks.push(tweakRows[i].name);
       }
       var levelSel = document.getElementById('powercuffLevel');
       var level = levelSel ? levelSel.value : 'heavy';
