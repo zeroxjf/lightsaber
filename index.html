@@ -262,8 +262,8 @@
         <button id="runBtnPC" class="btn btn-run" onclick="openLevelPicker()">Install</button>
       </div>
       <p class="note">
-        Ports <a href="https://github.com/rpetrich/Powercuff">rpetrich's Powercuff</a> tweak to the lightsaber JS-injection chain. Injects into thermalmonitord and triggers one of the daemon's built-in thermal-simulation modes (off, nominal, light, moderate, heavy). Persists until reboot or until the daemon re-evaluates state.<br><br>
-        To change levels, you must respring or reboot and re-run the chain. For convenience, sideload <a href="https://github.com/34306/mdc0/releases/download/1.0/respringapp.ipa">respringapp.ipa</a> (thanks to <a href="https://github.com/34306">34306</a> / <a href="https://github.com/straight-tamago">misaka26</a>) for a one-tap respring.<br><br>
+        Ports <a href="https://github.com/rpetrich/Powercuff">rpetrich's Powercuff</a> tweak to the lightsaber JS-injection chain. Injects into thermalmonitord and triggers one of the daemon's built-in thermal-simulation modes (off, nominal, light, moderate, heavy).<br><br>
+        Because thermalmonitord is a system daemon (not SpringBoard), the simulated thermal pressure <strong>survives respring</strong> &mdash; to change levels or clear it, you must <strong>fully reboot</strong> the device and then re-run the chain with the new level.<br><br>
         If it fails or resprings, reboot and retry.
       </p>
     </div>
