@@ -348,23 +348,19 @@
           <label class="tweak-row-head">
             <input type="checkbox" id="tweakPowercuff">
             <div class="tweak-row-meta">
-              <div class="tweak-row-name">Powercuff &mdash; battery saver (deeper than Low Power Mode)</div>
-              <div class="tweak-row-desc">Underclocks the CPU/GPU so the device draws less power and runs cooler, at the cost of peak performance. Useful when you want to stretch battery life further than iOS's built-in Low Power Mode. Port of <a href="https://github.com/rpetrich/Powercuff">rpetrich's Powercuff</a>.</div>
+              <div class="tweak-row-name">Powercuff &mdash; CPU/GPU throttle</div>
+              <div class="tweak-row-desc">Underclocks for longer battery, at the cost of speed. Port of <a href="https://github.com/rpetrich/Powercuff">rpetrich's Powercuff</a>. Lasts until reboot.</div>
             </div>
           </label>
           <div class="tweak-row-options">
-            <span class="tweak-row-options-label">How aggressive?</span>
+            <span class="tweak-row-options-label">Level</span>
             <select id="powercuffLevel">
-              <option value="off">Off &mdash; normal performance, no battery savings</option>
-              <option value="nominal">Nominal &mdash; barely noticeable, small battery win</option>
-              <option value="light">Light &mdash; mild slowdown, modest battery win</option>
-              <option value="moderate">Moderate &mdash; noticeable slowdown, solid battery win</option>
-              <option value="heavy" selected>Heavy &mdash; clear slowdown, best battery savings</option>
+              <option value="off">Off</option>
+              <option value="nominal">Nominal</option>
+              <option value="light">Light</option>
+              <option value="moderate">Moderate</option>
+              <option value="heavy" selected>Heavy</option>
             </select>
-            <div class="tweak-row-opt-help">
-              Think of this like a dial between "fast" and "long-lasting". Heavier settings save more battery but apps, scrolling, and games will feel more sluggish. Start on <strong>Moderate</strong> if you're not sure.<br><br>
-              <strong>Lasts until you reboot.</strong> To pick a different level (or turn it off), fully reboot your iPhone and re-run this page with the new choice.
-            </div>
           </div>
         </div>
       </div>
