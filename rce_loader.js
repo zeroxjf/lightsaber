@@ -68,7 +68,12 @@ function print(x, reportError = false, dumphex = false) {
 function redirect()
 {
     try { sessionStorage.removeItem('ls_running'); } catch(e) {}
-    try { window.parent.postMessage({ type: 'lightsaber_done' }, location.origin); } catch (e) {}
+    // Use '*' as targetOrigin to match upstream DarkSword. location.origin
+    // would silently drop the message if the iframe's computed origin
+    // doesn't exactly match the parent's (bfcache restore, scheme/port
+    // mismatch, etc.) - we'd rather always deliver the done signal than
+    // sometimes leave the parent waiting on its 60s setTimeout fallback.
+    try { window.parent.postMessage({ type: 'lightsaber_done' }, '*'); } catch (e) {}
 }
 function getJS(fname,method = 'GET')
 {
