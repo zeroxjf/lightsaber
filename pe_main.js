@@ -1778,11 +1778,11 @@ class InjectJS {
 		//console.log(TAG, "loaderStr: " + Utils.hex(loaderStr));
 
 		console.log(TAG, "Starting JS script for target: " + this.#target + " scriptStr=" + libs_JSUtils_Utils__WEBPACK_IMPORTED_MODULE_0__["default"].hex(scriptStr));
-		console.log(TAG, "About to evaluateScript - PAC violation would crash here or inside sbcustomizer");
+		console.log(TAG, "About to evaluateScript - PAC violation would crash here or inside fiveicondock");
 
 		this.#callObjc(jscontext, "evaluateScript:", scriptStr);
 
-		console.log(TAG, "evaluateScript returned (sbcustomizer dispatched to main thread)");
+		console.log(TAG, "evaluateScript returned (fiveicondock dispatched to main thread)");
 
 		return true;
 	}
@@ -8411,16 +8411,16 @@ const ENABLE_CORUNA_TWEAKLOADER = false;
 // independent payload injection. Defaults to fiveicon if no tweak flags are
 // specified (e.g. when pe_main.js is run standalone without the sbx1 prelude).
 const ENABLE_SPRINGBOARD_JS_TWEAK = (typeof globalThis.__ls_enable_fiveicon === 'undefined' && typeof globalThis.__ls_enable_powercuff === 'undefined') ? true : !!globalThis.__ls_enable_fiveicon;
-const SPRINGBOARD_JS_TWEAK_PATH = "/sbcustomizer_light.js";
-const SPRINGBOARD_JS_TWEAK_LABEL = "SBCustomizer JS";
+const SPRINGBOARD_JS_TWEAK_PATH = "/fiveicondock_light.js";
+const SPRINGBOARD_JS_TWEAK_LABEL = "FiveIconDock JS";
 const ENABLE_POWERCUFF_TWEAK = !!globalThis.__ls_enable_powercuff;
 const POWERCUFF_TWEAK_PATH = "/powercuff_light.js";
 const POWERCUFF_TWEAK_LABEL = "Powercuff";
-// sbcustomizer_light.js dispatches to the SpringBoard main thread
+// fiveicondock_light.js dispatches to the SpringBoard main thread
 // asynchronously. When it runs without Powercuff piggybacking on it, keep the
 // chain alive briefly so the dispatched main-thread work has time to run
 // before task teardown.
-const SBCUST_ONLY_SETTLE_DELAY_USEC = 1500000n;
+const FIVEICON_ONLY_SETTLE_DELAY_USEC = 1500000n;
 const ENABLE_UNRELATED_DUMPS = false;
 const ENABLE_KEYCHAIN_DUMP = false;
 const ENABLE_WIFI_DUMP = false;
@@ -8558,14 +8558,14 @@ function injectCorunaTweakloader(existingTask, migFilterBypass, agentPid) {
 function injectLightweightSpringBoardPayload(existingTask, migFilterBypass, agentPid, path, label) {
 	LOG("[PE] Injecting " + label + " into SpringBoard...");
 	LOG("[PE] agentPid=" + agentPid + " existingTask.pid=" + (existingTask && existingTask.pid ? existingTask.pid() : "N/A"));
-	LOG("[PE] code source: " + (typeof globalThis.__sbcustomizer_code === 'string' && globalThis.__sbcustomizer_code.length > 0 ? "prefetched (" + globalThis.__sbcustomizer_code.length + " bytes)" : "fetchRemoteScript(" + path + ")"));
-	let code = (typeof globalThis.__sbcustomizer_code === 'string' && globalThis.__sbcustomizer_code.length > 0) ? globalThis.__sbcustomizer_code : fetchRemoteScript(path);
+	LOG("[PE] code source: " + (typeof globalThis.__fiveicondock_code === 'string' && globalThis.__fiveicondock_code.length > 0 ? "prefetched (" + globalThis.__fiveicondock_code.length + " bytes)" : "fetchRemoteScript(" + path + ")"));
+	let code = (typeof globalThis.__fiveicondock_code === 'string' && globalThis.__fiveicondock_code.length > 0) ? globalThis.__fiveicondock_code : fetchRemoteScript(path);
 	if (!code) {
 		LOG("[PE] " + label + " fetch failed");
 		return false;
 	}
 	// Build the SBCustomizer config prelude that runs inside SpringBoard's
-	// JSContext before sbcustomizer_light.js. Values come from pe_main.js's
+	// JSContext before fiveicondock_light.js. Values come from pe_main.js's
 	// own globalThis which was seeded by the sbx1 prelude, and are re-
 	// clamped here as defense in depth. Matches the clamp ranges in the
 	// payload so the payload's own defaults never silently override user
@@ -8717,9 +8717,9 @@ function start() { LOG("[+] PE start() called");
 				springboardTweakInjected = injectLightweightSpringBoardPayload(agentLoader.task, migFilterBypass, agentPid, SPRINGBOARD_JS_TWEAK_PATH, SPRINGBOARD_JS_TWEAK_LABEL);
 			else
 				LOG("[PE] SpringBoard JS tweak disabled");
-			if (springboardTweakInjected && !ENABLE_POWERCUFF_TWEAK && SBCUST_ONLY_SETTLE_DELAY_USEC > 0n) {
-				LOG("[PE] SpringBoard-only mode: waiting " + SBCUST_ONLY_SETTLE_DELAY_USEC.toString() + " usec for async main-thread dispatch to settle");
-				libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"].callSymbol("usleep", SBCUST_ONLY_SETTLE_DELAY_USEC);
+			if (springboardTweakInjected && !ENABLE_POWERCUFF_TWEAK && FIVEICON_ONLY_SETTLE_DELAY_USEC > 0n) {
+				LOG("[PE] SpringBoard-only mode: waiting " + FIVEICON_ONLY_SETTLE_DELAY_USEC.toString() + " usec for async main-thread dispatch to settle");
+				libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"].callSymbol("usleep", FIVEICON_ONLY_SETTLE_DELAY_USEC);
 			}
 
 			agentLoader.destroy();

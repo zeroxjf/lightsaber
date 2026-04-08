@@ -8,7 +8,7 @@
     return n;
   }
   // SBCustomizer config - read from the prelude baked in by pe_main.js at
-  // inject time. Defaults match the historical sbcustomizer behavior so a
+  // inject time. Defaults match the historical fiveicondock behavior so a
   // standalone payload run with no config prelude still does the right
   // thing (5 dock icons, 5 home cols, stock 6 rows).
   const DOCK_ICONS = _sbcClamp(globalThis.__sbc_dock_icons, 4, 7, 4);
@@ -23,14 +23,14 @@
   // Repeat-loop interval for the statbar overlay. We can't install a real
   // ObjC swizzle on -[STUIStatusBarStringView setText:] from JS (no IMP
   // fabrication in the bridge), so instead the injected worker thread
-  // sleeps for this many microseconds and re-posts __sbcust_statbar to
+  // sleeps for this many microseconds and re-posts __fiveicon_statbar to
   // main thread on every tick. Two seconds is slow enough not to saturate
   // the main runloop with view walks, fast enough that the overlay reads
   // as live.
   const STATBAR_LOOP_INTERVAL_US = 2000000;
   // Hard ceiling on loop iterations so a bug can't spin the injected
   // worker forever. 12h at 2s = 21600 ticks. The loop also exits early if
-  // globalThis.__sbcust_statbar_loop_active is cleared from another
+  // globalThis.__fiveicon_statbar_loop_active is cleared from another
   // context.
   const STATBAR_LOOP_MAX_ITERS = 21600;
   // Home screen grid patch uses the SBHIconManager -> listLayoutProvider
@@ -214,7 +214,7 @@
 
   function log(msg) {
     try {
-      const tagged = "[SBC] " + msg;
+      const tagged = "[FIVEICON] " + msg;
       const ptr = Native.callSymbol("malloc", BigInt(tagged.length + 1));
       if (!ptr) return;
       Native.writeString(ptr, tagged);
@@ -438,7 +438,7 @@
   }
 
   function runOnMainEvaluate(script) {
-    const jsctxObj = globalThis.__sbcust_jsctx_obj;
+    const jsctxObj = globalThis.__fiveicon_jsctx_obj;
     log("runOnMainEvaluate: jsctxObj=0x" + u64(jsctxObj).toString(16) + " scriptLen=" + script.length);
     if (!isNonZero(jsctxObj)) {
       log("runOnMainEvaluate: jsctxObj is NULL, aborting");
@@ -893,7 +893,7 @@
   // views visited and avoids racing against the home screen's layout
   // churn that was use-after-freeing descendants between ticks.
   function findStatusBarClockLabel(app, classes) {
-    const cached = globalThis.__sbcust_statbar_label_cached;
+    const cached = globalThis.__fiveicon_statbar_label_cached;
     if (cached !== undefined && isNonZero(cached)) {
       log("statbar: cache HIT label=0x" + u64(cached).toString(16));
       return cached;
@@ -944,12 +944,12 @@
       const hit = objc(txt, "containsString:", colon);
       if (isNonZero(hit)) {
         log("statbar: picked candidate " + i + " (has ':' in current text)");
-        globalThis.__sbcust_statbar_label_cached = candidates[i];
+        globalThis.__fiveicon_statbar_label_cached = candidates[i];
         return candidates[i];
       }
     }
     log("statbar: no ':' candidate, caching candidate 0");
-    globalThis.__sbcust_statbar_label_cached = candidates[0];
+    globalThis.__fiveicon_statbar_label_cached = candidates[0];
     return candidates[0];
   }
 
@@ -984,7 +984,7 @@
   // gone.
   //
   // This is still one-shot: iOS will re-set the clock text on the next
-  // minute tick. Re-inject sbcustomizer with __sbc_statbar=1 to refresh.
+  // minute tick. Re-inject fiveicondock with __sbc_statbar=1 to refresh.
   function createStatBarOverlay() {
     log("statbar: entry (replace mode v2)");
     log("statbar: pre objc_getClass UIApplication");
@@ -1098,33 +1098,33 @@
   }
 
   try {
-    log("=== sbcustomizer_light.js entry ===");
+    log("=== fiveicondock_light.js entry ===");
     Native.init();
     log("Native.init() ok, baseAddr=0x" + new BigUint64Array(nativeCallBuff)[20].toString(16));
     const bi = Native.bridgeInfo();
-    globalThis.__sbcust_jsctx_obj = bi.jsContextObj;
-    globalThis.__sbcust_apply_once = applyDockPatch;
-    globalThis.__sbcust_log = log;
-    globalThis.__sbcust_statbar_consecutive_failures = 0;
-    globalThis.__sbcust_statbar = function() {
+    globalThis.__fiveicon_jsctx_obj = bi.jsContextObj;
+    globalThis.__fiveicon_apply_once = applyDockPatch;
+    globalThis.__fiveicon_log = log;
+    globalThis.__fiveicon_statbar_consecutive_failures = 0;
+    globalThis.__fiveicon_statbar = function() {
       if (!ENABLE_STATBAR) return;
       try {
         const ok = createStatBarOverlay();
         if (ok) {
-          globalThis.__sbcust_statbar_consecutive_failures = 0;
+          globalThis.__fiveicon_statbar_consecutive_failures = 0;
         } else {
-          globalThis.__sbcust_statbar_consecutive_failures++;
-          if (globalThis.__sbcust_statbar_consecutive_failures >= 3) {
+          globalThis.__fiveicon_statbar_consecutive_failures++;
+          if (globalThis.__fiveicon_statbar_consecutive_failures >= 3) {
             log("statbar: 3 consecutive failures, halting loop to avoid crash churn");
-            globalThis.__sbcust_statbar_loop_active = false;
+            globalThis.__fiveicon_statbar_loop_active = false;
           }
         }
       } catch (e) {
         log("statbar err: " + String(e));
-        globalThis.__sbcust_statbar_consecutive_failures++;
-        if (globalThis.__sbcust_statbar_consecutive_failures >= 3) {
+        globalThis.__fiveicon_statbar_consecutive_failures++;
+        if (globalThis.__fiveicon_statbar_consecutive_failures >= 3) {
           log("statbar: 3 consecutive failures, halting loop to avoid crash churn");
-          globalThis.__sbcust_statbar_loop_active = false;
+          globalThis.__fiveicon_statbar_loop_active = false;
         }
       }
     };
@@ -1150,24 +1150,24 @@
     log("test SBIconController=0x" + u64(testSB).toString(16) + (testSB ? " (found)" : " (NOT FOUND - wrong process?)"));
 
     log("about to runOnMainEvaluate (performSelectorOnMainThread) - PAC violation happens here if PAC context is stale");
-    runOnMainEvaluate("try{__sbcust_log('main-thread dispatch alive');__sbcust_apply_once('main-pass-1');}catch(e){__sbcust_log('main-pass-1 err: '+e);}");
+    runOnMainEvaluate("try{__fiveicon_log('main-thread dispatch alive');__fiveicon_apply_once('main-pass-1');}catch(e){__fiveicon_log('main-pass-1 err: '+e);}");
     // Bounce statbar through a separate performSelectorOnMainThread so it
     // lands on a fresh runloop tick rather than piggybacking on the dock
     // pass, which kicks off async UIKit layout work that can leave the
     // main thread in a funky state for an immediate follow-up message.
-    runOnMainEvaluate("try{__sbcust_statbar();}catch(e){__sbcust_log('statbar dispatch err: '+e);}");
+    runOnMainEvaluate("try{__fiveicon_statbar();}catch(e){__fiveicon_log('statbar dispatch err: '+e);}");
     log("runOnMainEvaluate returned (async dispatch, no crash on injected thread)");
 
     if (ENABLE_SECOND_PASS) {
       Native.callSymbol("usleep", 1200000);
       log("about to runOnMainEvaluate pass 2");
-      runOnMainEvaluate("try{__sbcust_apply_once('main-pass-2');}catch(e){__sbcust_log('main-pass-2 err: '+e);}");
+      runOnMainEvaluate("try{__fiveicon_apply_once('main-pass-2');}catch(e){__fiveicon_log('main-pass-2 err: '+e);}");
       log("pass 2 dispatched");
     }
 
     // Statbar repeat loop. Runs on THIS injected worker thread, so usleep
     // here does NOT block SpringBoard's main thread - it only idles this
-    // one injected pthread. Every tick we re-post __sbcust_statbar to
+    // one injected pthread. Every tick we re-post __fiveicon_statbar to
     // main thread via runOnMainEvaluate (the same performSelectorOnMainThread
     // / evaluateScript: bounce used for the initial dispatch) so the
     // repeated work stays on the UI thread where UIKit expects it.
@@ -1181,21 +1181,21 @@
     // we never return through the outer try/catch under normal operation -
     // the injected worker thread just lives in the sleep/dispatch cycle
     // until either the hard cap is hit or another code path clears
-    // __sbcust_statbar_loop_active.
+    // __fiveicon_statbar_loop_active.
     if (ENABLE_STATBAR) {
-      globalThis.__sbcust_statbar_loop_active = true;
+      globalThis.__fiveicon_statbar_loop_active = true;
       log("statbar: entering repeat loop (interval=" + STATBAR_LOOP_INTERVAL_US + "us max=" + STATBAR_LOOP_MAX_ITERS + ")");
       let tick = 0;
-      while (globalThis.__sbcust_statbar_loop_active && tick < STATBAR_LOOP_MAX_ITERS) {
+      while (globalThis.__fiveicon_statbar_loop_active && tick < STATBAR_LOOP_MAX_ITERS) {
         Native.callSymbol("usleep", BigInt(STATBAR_LOOP_INTERVAL_US));
         try {
-          runOnMainEvaluate("try{__sbcust_statbar();}catch(e){__sbcust_log('statbar tick err: '+e);}");
+          runOnMainEvaluate("try{__fiveicon_statbar();}catch(e){__fiveicon_log('statbar tick err: '+e);}");
         } catch (e) {
           log("statbar loop post err: " + String(e));
         }
         tick++;
       }
-      log("statbar: loop exited after " + tick + " ticks (active=" + !!globalThis.__sbcust_statbar_loop_active + ")");
+      log("statbar: loop exited after " + tick + " ticks (active=" + !!globalThis.__fiveicon_statbar_loop_active + ")");
     }
   } catch (e) {
     log("fatal: " + String(e) + " stack: " + (e.stack || "N/A"));

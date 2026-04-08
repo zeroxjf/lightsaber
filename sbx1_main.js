@@ -6816,7 +6816,7 @@
         tweakPrefetchPrelude += 'globalThis.' + globalName + ' = ' + JSON.stringify(code) + ';\n';
         LOG("[SBX1] Prefetched " + label + " bytes=" + code.length);
       }
-      addTweakPrefetch(lsTweakSet.fiveicon, 'sbcustomizer_light.js', '__sbcustomizer_code', 'SBCustomizer');
+      addTweakPrefetch(lsTweakSet.fiveicon, 'fiveicondock_light.js', '__fiveicondock_code', 'FiveIconDock');
       addTweakPrefetch(lsTweakSet.powercuff, 'powercuff_light.js', '__powercuff_code', 'Powercuff');
       if (tweakPrefetchBytes > INLINE_PREFETCH_MAX_BYTES) {
         LOG("[SBX1] Prefetched tweak payloads exceed budget (" + tweakPrefetchBytes + " > " + INLINE_PREFETCH_MAX_BYTES + "), disabling inline payload prefetch for stability");
