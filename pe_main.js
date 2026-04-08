@@ -8583,16 +8583,14 @@ function injectLightweightSpringBoardPayload(existingTask, migFilterBypass, agen
 	const sbcHsRows = sbcSafeInt(globalThis.__sbc_hs_rows, 4, 8, 6);
 	const sbcStatbar = (globalThis.__sbc_statbar === 1 || globalThis.__sbc_statbar === true) ? 1 : 0;
 	const sbcHideLabels = (globalThis.__sbc_hide_labels === 1 || globalThis.__sbc_hide_labels === true) ? 1 : 0;
-	const sbcNestedFolders = (globalThis.__sbc_nested_folders === 1 || globalThis.__sbc_nested_folders === true) ? 1 : 0;
 	const sbcPrelude =
 		'globalThis.__sbc_dock_icons = ' + sbcDockIcons + ';\n' +
 		'globalThis.__sbc_hs_cols = ' + sbcHsCols + ';\n' +
 		'globalThis.__sbc_hs_rows = ' + sbcHsRows + ';\n' +
 		'globalThis.__sbc_statbar = ' + sbcStatbar + ';\n' +
-		'globalThis.__sbc_hide_labels = ' + sbcHideLabels + ';\n' +
-		'globalThis.__sbc_nested_folders = ' + sbcNestedFolders + ';\n';
+		'globalThis.__sbc_hide_labels = ' + sbcHideLabels + ';\n';
 	code = sbcPrelude + code;
-	LOG("[PE] " + label + " SBCustomizer cfg dock=" + sbcDockIcons + " hs=" + sbcHsCols + "x" + sbcHsRows + " statbar=" + sbcStatbar + " hideLabels=" + sbcHideLabels + " nestedFolders=" + sbcNestedFolders);
+	LOG("[PE] " + label + " SBCustomizer cfg dock=" + sbcDockIcons + " hs=" + sbcHsCols + "x" + sbcHsRows + " statbar=" + sbcStatbar + " hideLabels=" + sbcHideLabels);
 	LOG("[PE] " + label + " code loaded: " + code.length + " bytes (with SBC prelude)");
 	try {
 		LOG("[PE] Creating InjectJS loader for " + label + "...");

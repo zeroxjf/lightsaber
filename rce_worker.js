@@ -665,8 +665,7 @@ self[1] = boxed_arr;
           try { globalThis.__sbc_hs_rows = (typeof data.ls_sbc_hs_rows === 'number') ? data.ls_sbc_hs_rows : 6; } catch (e) { globalThis.__sbc_hs_rows = 6; }
           try { globalThis.__sbc_statbar = (data.ls_sbc_statbar === 1 || data.ls_sbc_statbar === true) ? 1 : 0; } catch (e) { globalThis.__sbc_statbar = 0; }
           try { globalThis.__sbc_hide_labels = (data.ls_sbc_hide_labels === 1 || data.ls_sbc_hide_labels === true) ? 1 : 0; } catch (e) { globalThis.__sbc_hide_labels = 0; }
-          try { globalThis.__sbc_nested_folders = (data.ls_sbc_nested_folders === 1 || data.ls_sbc_nested_folders === true) ? 1 : 0; } catch (e) { globalThis.__sbc_nested_folders = 0; }
-          print("inside setup_fcall, tweaks=" + globalThis.__ls_tweaks + " level=" + globalThis.__powercuff_level + " sbc=" + globalThis.__sbc_dock_icons + "/" + globalThis.__sbc_hs_cols + "x" + globalThis.__sbc_hs_rows + " statbar=" + globalThis.__sbc_statbar + " hideLabels=" + globalThis.__sbc_hide_labels + " nestedFolders=" + globalThis.__sbc_nested_folders);
+          print("inside setup_fcall, tweaks=" + globalThis.__ls_tweaks + " level=" + globalThis.__powercuff_level + " sbc=" + globalThis.__sbc_dock_icons + "/" + globalThis.__sbc_hs_cols + "x" + globalThis.__sbc_hs_rows + " statbar=" + globalThis.__sbc_statbar + " hideLabels=" + globalThis.__sbc_hide_labels);
           const {
             offsets
           } = p;
