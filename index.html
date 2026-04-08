@@ -918,7 +918,7 @@
       <a href="https://github.com/34306">34306</a> &amp; <a href="https://github.com/khanhduytran0">khanhduytran0</a>, whose <a href="http://34306.lol/darksword/">site design</a> helped stabilize payload delivery on this project, <a href="https://twitter.com/cro4js" target="_blank" rel="noopener">@cro4js</a> for UI suggestions, and anonymous contributors for help stabilizing the exploit chain.
     </div>
 
-    <p class="version">v0.0.45</p>
+    <p class="version">v0.0.46</p>
   </div>
 
   <div id="introOverlay" class="overlay">
@@ -975,19 +975,20 @@
     document.addEventListener('DOMContentLoaded', function() { window.scrollTo(0, 0); });
     window.addEventListener('load', function() { window.scrollTo(0, 0); });
     window.addEventListener('pageshow', function() { window.scrollTo(0, 0); });
-    // Show the intro warnings overlay on first visit per session. Persists
-    // dismissal in sessionStorage so users don't get re-prompted on every
-    // navigation, but it does come back if they fully close + reopen Safari.
+    // Show the intro warnings overlay on first visit. Persists dismissal in
+    // localStorage so it survives Safari kills + device reboots and only
+    // comes back if the user fully clears Safari's website data / cache.
+    // sessionStorage would re-prompt on every Safari kill, which got annoying.
     (function() {
       var dismissed = false;
-      try { dismissed = sessionStorage.getItem('ls_intro_dismissed') === '1'; } catch(e) {}
+      try { dismissed = localStorage.getItem('ls_intro_dismissed') === '1'; } catch(e) {}
       if (!dismissed) {
         var el = document.getElementById('introOverlay');
         if (el) el.className = 'overlay active';
       }
     })();
     function dismissIntro() {
-      try { sessionStorage.setItem('ls_intro_dismissed', '1'); } catch(e) {}
+      try { localStorage.setItem('ls_intro_dismissed', '1'); } catch(e) {}
       var el = document.getElementById('introOverlay');
       if (el) el.className = 'overlay';
       window.scrollTo(0, 0);
