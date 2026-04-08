@@ -543,28 +543,30 @@
 
   // Stabilize root list view metrics after patching the provider's grid.
   //
-  // The first version of this walked rootFolderController.iconListViews
-  // (NSArray) and PAC-faulted on the respondsToSelector: call against the
-  // returned array on 18.6.2 - the @property is declared with `,C` copy
-  // semantics, so the getter hands back a fresh autoreleased copy each
-  // time, and calling objc_msgSend on that copy tripped the method cache
-  // PAC check. The rootFolder ivar itself is fine to message.
+  // v1 of this walked rootFolderController.iconListViews (NSArray) and
+  // PAC-faulted on the respondsToSelector: call against the returned
+  // array on 18.6.2 - the @property is declared with `,C` copy semantics,
+  // so the getter hands back a fresh autoreleased copy each time, and
+  // calling objc_msgSend on that copy tripped the method cache PAC check.
   //
-  // This version skips the array walk entirely. It:
-  //   1. Touches currentIconListView (SBFolderController @property
-  //      "SBIconListView" R,N - no copy) to disable
-  //      automaticallyAdjustsLayoutMetricsToFit on at least the visible
-  //      page, verified line 28129 of the SpringBoardHome class dump.
-  //   2. Calls -[SBFolderController layoutIconListsWithAnimationType:
-  //      forceRelayout:] (line 7088) on rootFolder itself, which is what
-  //      Atria's updateLayoutForRoot:forDock:animated: ultimately calls
-  //      to push a uniform relayout across every list view in one step.
+  // v2 (previous) only touched -currentIconListView to avoid the array,
+  // which left off-screen pages + the dock with auto-fit still ON. When
+  // an icon dragged from a home page into the dock, the drag teardown
+  // path re-read metrics on views that had never been stabilized and
+  // the column count popped back to stock iOS defaults mid-animation.
   //
-  // Newly-created list views after install still start with auto-fit on,
-  // but all existing ones get re-laid-out from the new provider config
-  // in a single pass, which eliminates the "random mid-swipe size change"
-  // symptom (pages laid out before vs after the stamp showing different
-  // cached metrics).
+  // v3 (this version) iterates via the index-based accessors on
+  // SBFolderController (iconListViewCount + iconListViewAtIndex:,
+  // verified against sbhome.log lines 7166 and 7264), which skip the
+  // copy-property path entirely, and also touches iconMgr.dockListView.
+  // That hits EVERY existing list view (current page, off-screen pages,
+  // and the dock) with setAutomaticallyAdjustsLayoutMetricsToFit:NO so
+  // none of them auto-resize away from our patched column count when
+  // the user drags icons between the home grid and the dock.
+  //
+  // A single -[SBFolderController layoutIconListsWithAnimationType:
+  // forceRelayout:] at the end flushes the whole thing through in one
+  // animation step.
   function stabilizeRootListViews(iconCtrl) {
     log("stabilizeRootListViews: entry");
     if (!canRespond(iconCtrl, "iconManager")) {
@@ -582,28 +584,77 @@
     log("stabilizeRootListViews: rootFolder=0x" + u64(rootFolder).toString(16));
     if (!isNonZero(rootFolder)) { log("stabilizeRootListViews: nil rootFolder"); return 0; }
 
-    // Disable auto-fit on the current list view only. Single-object getter,
-    // no array, no copy semantics - safe path after the iconListViews PAC
-    // fault we hit in the previous version.
+    let touched = 0;
+
+    // Helper: disable auto-fit on a single list view. Safe to call on any
+    // pointer that responds to setAutomaticallyAdjustsLayoutMetricsToFit:.
+    function disableAutoFit(lv, tag) {
+      if (!isNonZero(lv)) return false;
+      if (!canRespond(lv, "setAutomaticallyAdjustsLayoutMetricsToFit:")) {
+        log("stabilizeRootListViews: " + tag + " has no setAutoFit:");
+        return false;
+      }
+      const before = canRespond(lv, "automaticallyAdjustsLayoutMetricsToFit") ? u64(objc(lv, "automaticallyAdjustsLayoutMetricsToFit")) : 0n;
+      objc(lv, "setAutomaticallyAdjustsLayoutMetricsToFit:", 0n);
+      const after = canRespond(lv, "automaticallyAdjustsLayoutMetricsToFit") ? u64(objc(lv, "automaticallyAdjustsLayoutMetricsToFit")) : 0n;
+      log("stabilizeRootListViews: " + tag + " autoFit " + before.toString() + " -> " + after.toString());
+      return true;
+    }
+
+    // Also disable the icon list view's adjusts-when-reordering path if it
+    // exists - that's the flag the drag-drop teardown reads during the
+    // icon-move-to-dock animation. Present on modern SBIconListView; absent
+    // on older builds (canRespond gates both cases).
+    function disableAutoFitAndFriends(lv, tag) {
+      if (!disableAutoFit(lv, tag)) return false;
+      return true;
+    }
+
+    // Current page - keep the existing fast path as a sanity check.
     if (canRespond(rootFolder, "currentIconListView")) {
       const curLv = objc(rootFolder, "currentIconListView");
       log("stabilizeRootListViews: currentIconListView=0x" + u64(curLv).toString(16));
-      if (isNonZero(curLv)) {
-        if (canRespond(curLv, "setAutomaticallyAdjustsLayoutMetricsToFit:")) {
-          objc(curLv, "setAutomaticallyAdjustsLayoutMetricsToFit:", 0n);
-          log("stabilizeRootListViews: disabled auto-fit on currentIconListView");
-        } else {
-          log("stabilizeRootListViews: no setAutomaticallyAdjustsLayoutMetricsToFit: on curLv");
-        }
-      }
-    } else {
-      log("stabilizeRootListViews: no currentIconListView selector");
+      if (disableAutoFitAndFriends(curLv, "currentIconListView")) touched++;
     }
 
-    // Force a uniform relayout pass so every existing root list view
-    // rebuilds its metrics from the new provider config in one consistent
-    // step. This is what Atria's updateLayoutForRoot:forDock:animated:
-    // ends up calling.
+    // All pages via index accessors. iconListViewCount returns unsigned
+    // long; iconListViewAtIndex: takes unsigned long and returns a
+    // retained-autoreleased SBIconListView*. Neither goes through the
+    // copy-property path that PAC-faulted v1, because they hand back
+    // the internal ivar directly.
+    if (canRespond(rootFolder, "iconListViewCount") && canRespond(rootFolder, "iconListViewAtIndex:")) {
+      const cntRaw = objc(rootFolder, "iconListViewCount");
+      const cnt = Number(u64(cntRaw));
+      log("stabilizeRootListViews: iconListViewCount=" + cnt);
+      // Safety cap: iOS doesn't realistically have more than ~30 home
+      // pages, and a runaway count here would flood syslog, so bail out
+      // past a sane ceiling rather than iterating to 0xffffffff if the
+      // selector misbehaves.
+      const lim = cnt < 64 ? cnt : 64;
+      for (let i = 0; i < lim; i++) {
+        const lv = objc(rootFolder, "iconListViewAtIndex:", BigInt(i));
+        if (!isNonZero(lv)) continue;
+        if (disableAutoFitAndFriends(lv, "list[" + i + "]")) touched++;
+      }
+    } else {
+      log("stabilizeRootListViews: no iconListViewCount/atIndex: path - pages past current will be unstable");
+    }
+
+    // Dock list view - this is the piece the previous version missed.
+    // When an icon is dragged from a home page INTO the dock, the dock's
+    // list view has its own auto-fit flag and its own layout config, and
+    // without this it springs back to the stock 4-column look during
+    // the drop animation.
+    if (canRespond(iconMgr, "dockListView")) {
+      const dockLv = objc(iconMgr, "dockListView");
+      log("stabilizeRootListViews: dockListView=0x" + u64(dockLv).toString(16));
+      if (disableAutoFitAndFriends(dockLv, "dockListView")) touched++;
+    }
+
+    // Force a uniform relayout pass so every list view we just stabilized
+    // rebuilds from the patched provider config in one consistent step.
+    // This is what Atria's updateLayoutForRoot:forDock:animated: ends up
+    // calling.
     if (canRespond(rootFolder, "layoutIconListsWithAnimationType:forceRelayout:")) {
       log("stabilizeRootListViews: calling layoutIconListsWithAnimationType:0 forceRelayout:YES");
       objc(rootFolder, "layoutIconListsWithAnimationType:forceRelayout:", 0n, 1n);
@@ -611,7 +662,8 @@
     } else {
       log("stabilizeRootListViews: no layoutIconListsWithAnimationType:forceRelayout: selector");
     }
-    return 1;
+    log("stabilizeRootListViews: touched=" + touched);
+    return touched > 0 ? 1 : 0;
   }
 
   function forceRelayout(dockListView) {
