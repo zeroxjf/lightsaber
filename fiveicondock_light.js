@@ -798,8 +798,122 @@
     return objc(NSString, "stringWithUTF8String:", str);
   }
 
+  // Build the custom status bar text from live device metrics.
+  function buildStatBarText() {
+    const tempC = getBatteryTempC();
+    const ramMB = getPhysMemMB();
+    let text = "";
+    if (tempC !== null && tempC > 0) {
+      const rounded = Math.round(tempC * 10) / 10;
+      text += rounded.toFixed(1) + "C  ";
+    }
+    if (ramMB > 0) text += "RAM: " + ramMB + "MB";
+    if (!text) text = "no data";
+    return text;
+  }
+
+  // Recognise any class the system might use for the status bar clock/text
+  // label across iOS 16 / 17 / 18. Verified names:
+  //   iOS 16        -> _UIStatusBarStringView
+  //   iOS 17+       -> STUIStatusBarStringView  (per 34306/excalibur)
+  // Plus a couple of defensive fallbacks in case 18.6.2 shipped yet another
+  // rename - walkFindStatusBarLabels() will match whichever one exists.
+  function isStatusBarStringViewClassName(name) {
+    if (!name) return false;
+    return name === "_UIStatusBarStringView" ||
+           name === "STUIStatusBarStringView" ||
+           name === "_UIStatusBarForegroundStyleLabel" ||
+           name === "UIStatusBarStringView" ||
+           name === "_UIStatusBarItemStringView";
+  }
+
+  // Recursively walk a view tree, collecting any descendant whose class
+  // name matches one of the status bar string view classes. Uses only
+  // pointer-arg ObjC calls (subviews / count / objectAtIndex: /
+  // object_getClass / class_getName) so the x-only bridge handles it fine.
+  // Bounded depth + per-level child cap keep a pathological tree from
+  // blowing the JS stack inside the injected worker.
+  function walkFindStatusBarLabels(view, out, depth) {
+    if (depth > 16) return;
+    if (!isNonZero(view)) return;
+    const cls = Native.callSymbol("object_getClass", view);
+    if (isNonZero(cls)) {
+      const namePtr = Native.callSymbol("class_getName", cls);
+      if (isNonZero(namePtr)) {
+        const name = Native.readString(namePtr, 128);
+        if (isStatusBarStringViewClassName(name)) {
+          out.push(view);
+        }
+      }
+    }
+    const subs = objc(view, "subviews");
+    if (!isNonZero(subs)) return;
+    const cntRaw = objc(subs, "count");
+    const cnt = Number(u64(cntRaw));
+    if (cnt <= 0) return;
+    const lim = cnt < 128 ? cnt : 128;
+    for (let i = 0; i < lim; i++) {
+      const sub = objc(subs, "objectAtIndex:", BigInt(i));
+      if (!isNonZero(sub)) continue;
+      walkFindStatusBarLabels(sub, out, depth + 1);
+    }
+  }
+
+  // Walk every UIWindow looking for a status bar string view. Prefer any
+  // candidate whose current text contains ':' (the clock line) so we hit
+  // the time label and not the cellular / SSID string. Falls back to the
+  // first match if nothing has a colon.
+  function findStatusBarClockLabel(app) {
+    const candidates = [];
+    const keyWin = objc(app, "keyWindow");
+    if (isNonZero(keyWin)) {
+      walkFindStatusBarLabels(keyWin, candidates, 0);
+      log("statbar: keyWindow walk produced " + candidates.length + " candidates");
+    }
+    const wins = objc(app, "windows");
+    if (isNonZero(wins)) {
+      const wCntRaw = objc(wins, "count");
+      const wCnt = Number(u64(wCntRaw));
+      const wLim = wCnt < 32 ? wCnt : 32;
+      for (let i = 0; i < wLim; i++) {
+        const w = objc(wins, "objectAtIndex:", BigInt(i));
+        if (!isNonZero(w)) continue;
+        if (u64(w) === u64(keyWin)) continue;
+        walkFindStatusBarLabels(w, candidates, 0);
+      }
+      log("statbar: total candidates after all windows: " + candidates.length);
+    }
+    if (candidates.length === 0) return 0n;
+    const colon = nsStr(":");
+    for (let i = 0; i < candidates.length; i++) {
+      const txt = objc(candidates[i], "text");
+      if (!isNonZero(txt)) continue;
+      const hit = objc(txt, "containsString:", colon);
+      if (isNonZero(hit)) {
+        log("statbar: picked candidate " + i + " (clock line)");
+        return candidates[i];
+      }
+    }
+    log("statbar: no ':' candidate, falling back to first");
+    return candidates[0];
+  }
+
+  // New approach (credit: 34306/excalibur/StatusBarTweak.m): instead of
+  // creating a fresh UILabel, positioning it via VFL / layout anchors /
+  // CALayer bounds and fighting the x-only bridge's FP-register hole for
+  // every single geometry setter, find the system status bar string view
+  // that already exists in SpringBoard's window hierarchy and overwrite
+  // its -text directly. Every selector in this path takes only pointer
+  // or integer args (objc_getClass / sharedApplication / keyWindow /
+  // subviews / count / objectAtIndex: / object_getClass / class_getName
+  // / text / containsString: / setText:), so nothing touches d0..d7 and
+  // nothing depends on CGRect/CGPoint/CGFloat argument marshalling.
+  //
+  // The system will re-set the clock text on its next minute tick, so
+  // this is effectively a one-shot overlay (matches the old behaviour).
+  // Re-inject fiveicondock with __sbc_statbar=1 to refresh the values.
   function createStatBarOverlay() {
-    log("statbar: entry");
+    log("statbar: entry (replace mode)");
     log("statbar: pre objc_getClass UIApplication");
     const UIApplication = Native.callSymbol("objc_getClass", "UIApplication");
     log("statbar: UIApplication=0x" + u64(UIApplication).toString(16));
@@ -812,117 +926,19 @@
     log("statbar: app=0x" + u64(app).toString(16));
     if (!isNonZero(app)) { log("statbar: no sharedApplication"); return false; }
 
-    log("statbar: pre findWindowScene");
-    const scene = findWindowScene(app);
-    if (!isNonZero(scene)) { log("statbar: no UIWindowScene"); return false; }
-    log("statbar: scene=0x" + u64(scene).toString(16));
+    log("statbar: pre findStatusBarClockLabel");
+    const label = findStatusBarClockLabel(app);
+    if (!isNonZero(label)) { log("statbar: no status bar label found"); return false; }
+    log("statbar: label=0x" + u64(label).toString(16));
 
-    const bounds = readScreenBounds();
-    const screenW = bounds.w;
-    log("statbar: screenW=" + screenW);
-
-    const tempC = getBatteryTempC();
-    const ramMB = getPhysMemMB();
-    let text = "";
-    if (tempC !== null && tempC > 0) {
-      const rounded = Math.round(tempC * 10) / 10;
-      text += rounded.toFixed(1) + "C  ";
-    }
-    if (ramMB > 0) text += "RAM: " + ramMB + "MB";
-    if (!text) text = "no data";
+    const text = buildStatBarText();
     log("statbar: text='" + text + "'");
 
-    // Centered pill under the Dynamic Island. We can't sizeToFit +
-    // read back the frame (NSValue getValue:size: PAC-faults), so
-    // estimate pill width from string length.
-    const labelH = 20;
-    const labelY = 44; // rough safe-area inset
-    const charPx = 6.4;
-    const padH = 18;
-    const estTextW = Math.ceil(text.length * charPx);
-    const pillW = estTextW + padH;
-    const pillX = Math.round((screenW - pillW) / 2);
-    log("statbar: pill=" + pillW + "x" + labelH + " x=" + pillX);
-
-    // Piggyback on the existing keyWindow rather than creating a new
-    // UIWindow. -[UIWindow setValue:forKey:@"frame"] PAC-faulted on
-    // 18.6.2 inside UIKit's KVC accessor - the new-window setFrame
-    // path appears to trip a signed IMP cache lookup that our bridge
-    // can't satisfy. The keyWindow already has a frame, so we just
-    // add our label into its rootViewController.view hierarchy.
-    log("statbar: pre keyWindow (host)");
-    const hostWin = objc(app, "keyWindow");
-    log("statbar: hostWin=0x" + u64(hostWin).toString(16));
-    if (!isNonZero(hostWin)) { log("statbar: no hostWin"); return false; }
-    log("statbar: pre hostWin rootViewController");
-    const hostVC = objc(hostWin, "rootViewController");
-    log("statbar: hostVC=0x" + u64(hostVC).toString(16));
-    if (!isNonZero(hostVC)) { log("statbar: no hostVC"); return false; }
-    log("statbar: pre hostVC view");
-    const hostView = objc(hostVC, "view");
-    log("statbar: hostView=0x" + u64(hostView).toString(16));
-    if (!isNonZero(hostView)) { log("statbar: no hostView"); return false; }
-
-    log("statbar: pre UIColor");
-    const UIColor = Native.callSymbol("objc_getClass", "UIColor");
-    const whiteC = objc(UIColor, "whiteColor");
-    const blackC = objc(UIColor, "blackColor");
-    log("statbar: whiteC=0x" + u64(whiteC).toString(16) + " blackC=0x" + u64(blackC).toString(16));
-
-    log("statbar: pre UILabel alloc init");
-    const UILabel = Native.callSymbol("objc_getClass", "UILabel");
-    const label = objc(objc(UILabel, "alloc"), "init");
-    log("statbar: label=0x" + u64(label).toString(16));
-    if (!isNonZero(label)) { log("statbar: label init failed"); return false; }
-
-    // Geometry via CALayer bounds/position + NSInvocation. Previous
-    // attempts using NSLayoutConstraint VFL
-    // (+constraintsWithVisualFormat:options:metrics:views:) SIGBUS'd
-    // inside the VFL parser on 18.6.2 - that selector takes 4 payload
-    // args (format, options, metrics, views) and our x-only bridge
-    // marshalling is flaky at that arity, so the internal parser ended
-    // up dereferencing an unaligned dictionary pointer.
-    //
-    // -setFrame: / -setBounds: / -setPosition: take CGRect/CGPoint by
-    // value in d0..d3/d0..d1, which the bridge can't load directly -
-    // but NSInvocation's -invoke dispatches through a proper ABI thunk,
-    // so invokeStructSetter + raw float64 bytes works. This is the
-    // canonical CLAUDE.md pattern and is already proven on CALayer by
-    // fiveicondock's home-screen path in this same file.
-    log("statbar: pre addSubview");
-    objc(hostView, "addSubview:", label);
-    log("statbar: post addSubview");
-
-    log("statbar: pre label layer");
-    const labelLayer = objc(label, "layer");
-    log("statbar: labelLayer=0x" + u64(labelLayer).toString(16));
-    if (!isNonZero(labelLayer)) { log("statbar: no labelLayer"); return false; }
-
-    // CALayer geometry: bounds is in the layer's own coordinates
-    // (origin always 0,0; size w x h), position is where the layer's
-    // anchorPoint (default {0.5,0.5}) lands in the parent's coordinate
-    // space. So for a frame of (pillX, labelY, pillW, labelH):
-    //   bounds   = (0, 0, pillW, labelH)
-    //   position = (pillX + pillW/2, labelY + labelH/2)
-    log("statbar: pre setLayerBounds");
-    setLayerBounds(labelLayer, 0, 0, pillW, labelH);
-    log("statbar: pre setLayerPosition");
-    setLayerPosition(labelLayer, pillX + pillW / 2, labelY + labelH / 2);
-    log("statbar: post layer geometry");
-
-    log("statbar: pre setText");
+    log("statbar: pre setText:");
     objc(label, "setText:", nsStr(text));
-    log("statbar: pre setTextColor");
-    objc(label, "setTextColor:", whiteC);
-    log("statbar: pre setTextAlignment");
-    objc(label, "setTextAlignment:", 1n);
-    log("statbar: pre setBackgroundColor");
-    objc(label, "setBackgroundColor:", blackC);
+    log("statbar: post setText:");
 
-    // Retain via associated object on UIApplication so ARC doesn't drop it.
-    Native.callSymbol("objc_setAssociatedObject", app, UIApplication, label, 1n /* RETAIN_NONATOMIC */);
-
-    log("statbar: overlay visible");
+    log("statbar: replace complete");
     return true;
   }
 
