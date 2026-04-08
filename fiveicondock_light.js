@@ -735,17 +735,27 @@
       text += rounded.toFixed(1) + "C  ";
     }
     if (ramMB > 0) text += "RAM: " + ramMB + "MB";
-    if (!text) text = "statbar: no data";
+    if (!text) text = "no data";
     log("statbar: text='" + text + "'");
+
+    // Centered pill under the Dynamic Island. We can't call sizeToFit +
+    // read back the resulting frame (the NSValue<CGRect> read path
+    // PAC-faults on getValue:size:), so estimate the pill width from
+    // the string length. System font at ~11pt averages ~6.2pt per char.
+    const labelH = 20;
+    const labelY = 44; // rough safe-area inset
+    const charPx = 6.4;
+    const padH = 18;
+    const estTextW = Math.ceil(text.length * charPx);
+    const pillW = estTextW + padH;
+    const pillX = Math.round((screenW - pillW) / 2);
+    const windowH = labelY + labelH + 6;
+    log("statbar: pill=" + pillW + "x" + labelH + " x=" + pillX);
 
     // UIWindow
     const UIWindow = Native.callSymbol("objc_getClass", "UIWindow");
     const win = objc(objc(UIWindow, "alloc"), "initWithWindowScene:", scene);
     if (!isNonZero(win)) { log("statbar: window init failed"); return false; }
-
-    const labelH = 16;
-    const labelY = 44; // rough safe-area inset; we can't reach safeAreaInsets (CGFloat returns).
-    const windowH = labelY + labelH + 4;
 
     const winFrame = nsValueFromCGRect(0, 0, screenW, windowH);
     objc(win, "setValue:forKey:", winFrame, cfstr("frame"));
@@ -770,12 +780,20 @@
     const UILabel = Native.callSymbol("objc_getClass", "UILabel");
     const label = objc(objc(UILabel, "alloc"), "init");
     if (!isNonZero(label)) { log("statbar: label init failed"); return false; }
-    const labelFrame = nsValueFromCGRect(0, labelY, screenW, labelH);
+    const labelFrame = nsValueFromCGRect(pillX, labelY, pillW, labelH);
     objc(label, "setValue:forKey:", labelFrame, cfstr("frame"));
     objc(label, "setText:", cfstr(text));
     objc(label, "setTextColor:", whiteC);
     objc(label, "setTextAlignment:", 1n); // NSTextAlignmentCenter
     objc(label, "setBackgroundColor:", blackC);
+    // Rounded corners: setCornerRadius: takes CGFloat (FP reg), so route
+    // through the label.layer via KVC with an NSNumber. KVC unboxes to
+    // CGFloat internally. Same trick for masksToBounds.
+    const layer = objc(label, "layer");
+    if (isNonZero(layer)) {
+      objc(layer, "setValue:forKey:", nsNumberLL(10), cfstr("cornerRadius"));
+      objc(layer, "setMasksToBounds:", 1n);
+    }
 
     objc(vcView, "addSubview:", label);
     objc(win, "setHidden:", 0n);
