@@ -875,54 +875,40 @@
     log("statbar: label=0x" + u64(label).toString(16));
     if (!isNonZero(label)) { log("statbar: label init failed"); return false; }
 
-    // Geometry via Auto Layout Visual Format Language. Our bridge
-    // can't load FP registers, so any direct call that takes a
-    // CGRect/CGPoint/CGFloat (-setFrame:, -setBounds:, -setPosition:,
-    // -setCornerRadius:, NSLayoutConstraint constraintWithItem:... with
-    // a multiplier/constant) is blocked. Every NSValue-based KVC path
-    // we tried PAC-faults inside -[NSValue getValue:size:] while
-    // UIKit/QuartzCore tries to unbox the struct. NSInvocation also
-    // faulted inside its trampoline. VFL is the last dodge: the
-    // numeric sizes live inside the format string, CoreAutoLayout
-    // parses them internally as CGFloats, and the call site only
-    // passes NSString/NSUInteger/NSDictionary - all pointer or
-    // integer args our x-only bridge handles fine.
-    log("statbar: pre setTranslatesAutoresizingMaskIntoConstraints");
-    objc(label, "setTranslatesAutoresizingMaskIntoConstraints:", 0n);
-
+    // Geometry via CALayer bounds/position + NSInvocation. Previous
+    // attempts using NSLayoutConstraint VFL
+    // (+constraintsWithVisualFormat:options:metrics:views:) SIGBUS'd
+    // inside the VFL parser on 18.6.2 - that selector takes 4 payload
+    // args (format, options, metrics, views) and our x-only bridge
+    // marshalling is flaky at that arity, so the internal parser ended
+    // up dereferencing an unaligned dictionary pointer.
+    //
+    // -setFrame: / -setBounds: / -setPosition: take CGRect/CGPoint by
+    // value in d0..d3/d0..d1, which the bridge can't load directly -
+    // but NSInvocation's -invoke dispatches through a proper ABI thunk,
+    // so invokeStructSetter + raw float64 bytes works. This is the
+    // canonical CLAUDE.md pattern and is already proven on CALayer by
+    // fiveicondock's home-screen path in this same file.
     log("statbar: pre addSubview");
     objc(hostView, "addSubview:", label);
     log("statbar: post addSubview");
 
-    const NSDictionary = Native.callSymbol("objc_getClass", "NSDictionary");
-    const NSLayoutConstraint = Native.callSymbol("objc_getClass", "NSLayoutConstraint");
-    const viewsDict = objc(NSDictionary, "dictionaryWithObject:forKey:", label, nsStr("pill"));
-    log("statbar: viewsDict=0x" + u64(viewsDict).toString(16));
+    log("statbar: pre label layer");
+    const labelLayer = objc(label, "layer");
+    log("statbar: labelLayer=0x" + u64(labelLayer).toString(16));
+    if (!isNonZero(labelLayer)) { log("statbar: no labelLayer"); return false; }
 
-    const hVFL = "H:|-" + pillX + "-[pill(" + pillW + ")]";
-    const vVFL = "V:|-" + labelY + "-[pill(" + labelH + ")]";
-    log("statbar: hVFL=" + hVFL);
-    log("statbar: vVFL=" + vVFL);
-
-    log("statbar: pre hConstraints");
-    const hConstraints = objc(NSLayoutConstraint,
-      "constraintsWithVisualFormat:options:metrics:views:",
-      nsStr(hVFL), 0n, 0n, viewsDict);
-    log("statbar: hConstraints=0x" + u64(hConstraints).toString(16));
-    log("statbar: pre vConstraints");
-    const vConstraints = objc(NSLayoutConstraint,
-      "constraintsWithVisualFormat:options:metrics:views:",
-      nsStr(vVFL), 0n, 0n, viewsDict);
-    log("statbar: vConstraints=0x" + u64(vConstraints).toString(16));
-
-    if (isNonZero(hConstraints)) {
-      log("statbar: activate hConstraints");
-      objc(NSLayoutConstraint, "activateConstraints:", hConstraints);
-    }
-    if (isNonZero(vConstraints)) {
-      log("statbar: activate vConstraints");
-      objc(NSLayoutConstraint, "activateConstraints:", vConstraints);
-    }
+    // CALayer geometry: bounds is in the layer's own coordinates
+    // (origin always 0,0; size w x h), position is where the layer's
+    // anchorPoint (default {0.5,0.5}) lands in the parent's coordinate
+    // space. So for a frame of (pillX, labelY, pillW, labelH):
+    //   bounds   = (0, 0, pillW, labelH)
+    //   position = (pillX + pillW/2, labelY + labelH/2)
+    log("statbar: pre setLayerBounds");
+    setLayerBounds(labelLayer, 0, 0, pillW, labelH);
+    log("statbar: pre setLayerPosition");
+    setLayerPosition(labelLayer, pillX + pillW / 2, labelY + labelH / 2);
+    log("statbar: post layer geometry");
 
     log("statbar: pre setText");
     objc(label, "setText:", nsStr(text));
