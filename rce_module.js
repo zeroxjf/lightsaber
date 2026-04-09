@@ -3237,7 +3237,7 @@ const device_chipset = {
         device_model = linkedit_to_device[ios_version][libsystem_pthread_linkedit];
         print("device_model: " + device_model);
         chipset = device_chipset[device_model];
-        offsets = rce_offsets[device_model];
+        offsets = { ...rce_offsets[device_model] };
         slide = globalFuncParseFloat - offsets.JavaScriptCore__globalFuncParseFloat;
         print(`slide: ${slide.hex()}`);
         for (const key of Object.keys(offsets)) {
