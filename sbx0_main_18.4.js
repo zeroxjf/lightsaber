@@ -7046,6 +7046,28 @@
   let gpuProcessConnectionIdentifier = read64(gpuProcessConnection + offsets.m_gpuProcessConnection_m_identifier);
   let retry_count = 0;
   const spray_profiles = {
+    tight: {
+      name: "tight",
+      pixelUnpackFill: 0x8015c8,
+      midSprays: [
+        [1, 0x100],
+        [0x10, 0x1000]
+      ],
+      tailSprays: [
+        [1, 0x100]
+      ]
+    },
+    tight_alt_fill: {
+      name: "tight_alt_fill",
+      pixelUnpackFill: 0xaac7ab,
+      midSprays: [
+        [1, 0x100],
+        [0x10, 0x1000]
+      ],
+      tailSprays: [
+        [1, 0x100]
+      ]
+    },
     compact: {
       name: "compact",
       pixelUnpackFill: 0x8015c8,
@@ -7094,12 +7116,17 @@
     }
   };
   const chipset_spray_profile = {
+    "0b92b8b2602c011d1831c6c27ef74b76": spray_profiles.tight,
     "f35b705e8c57ae59e369ebc9145a9dbc": spray_profiles.compact_alt_fill,
     "43ba9900ff2fc7d9d32072540b2cab12": spray_profiles.wide,
     "c90776dbac058ed6957f476e287867f8": spray_profiles.wide,
-    "22f32fd975a694d340a6ad22b872b1ae": spray_profiles.wide
+    "22f32fd975a694d340a6ad22b872b1ae": spray_profiles.wide,
+    "c33e4990a9d3afe948b98d7d4205d596": spray_profiles.wide,
+    "6149d995753968891870832e3fec9195": spray_profiles.wide
   };
   const fallback_spray_profiles = [
+    spray_profiles.tight,
+    spray_profiles.tight_alt_fill,
     spray_profiles.compact,
     spray_profiles.compact_alt_fill,
     spray_profiles.wide_alt_fill,
