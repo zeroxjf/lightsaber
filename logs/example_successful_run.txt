@@ -1,4 +1,3 @@
-Apr  9 15:35:27.934157 bluetoothd[94] <Info>: parseAACPSetupComplete FC_AACP_AIRPODS_INFO received
 Apr  9 15:36:13.116120 kernel(Sandbox)[0] <Error>: System Policy: com.apple.WebKit.WebContent(576) deny(1) file-write-create /(790)         sbx0: runLoopHolder_tid: 0x103
 Apr  9 15:36:13.116146 kernel(Sandbox)[0] <Error>: System Policy: com.apple.WebKit.WebContent(576) deny(1) file-write-create /(791)         sbx0: webProcess: 0x110000100
 Apr  9 15:36:13.116282 kernel(Sandbox)[0] <Error>: System Policy: com.apple.WebKit.WebContent(576) deny(1) file-write-create /(791)         sbx0: webPage: 0x1043c4f08
@@ -950,17 +949,3 @@ Apr  9 15:37:41.138891 mediaplaybackd(FitnessCanvasUI)[376] <Notice>: [APPLIMIT]
 Apr  9 15:37:41.139182 mediaplaybackd(FitnessCanvasUI)[376] <Notice>: [APPLIMIT] === APP LIMIT BYPASS EXIT ===
 Apr  9 15:37:41.139478 mediaplaybackd(FitnessCanvasUI)[376] <Notice>: [PE] Cleaning up launchdTask...
 Apr  9 15:37:41.141737 mediaplaybackd(FitnessCanvasUI)[376] <Notice>: [PE] start() completed successfully
-Apr  9 15:37:57.372118 ReportCrash[214] <Info>: osa_update: Pid 34 'SpringBoard' CORPSE: Parsing KCData
-Apr  9 15:37:57.378476 ReportCrash[214] <Info>: osa_update: Pid 34 'SpringBoard' CORPSE: Extracting
-Apr  9 15:37:58.898866 ReportCrash(CoreServices)[214] <Debug>: +++ SpringBoard (B:0x304, C:0x0) (null)
-Apr  9 15:37:58.899207 ReportCrash[214] <Notice>: loadStoreInfo [platform 2] com.apple.springboard from file:///System/Library/CoreServices/SpringBoard.app/
-Apr  9 15:37:58.928491 ReportCrash(MetricKitSource)[214] <Error>: Failed to create bundle record for bundleID com.apple.springboard and error <private>
-Apr  9 15:37:58.928687 ReportCrash[214] <Notice>: com.apple.springboard is not a MetricKit client
-calculated rootPath of /private/var/mobile/Containers/Data/Application/0305CB9D-3A49-4E6F-973B-CDF3EDED9661/Library/SplashBoard/Snapshots/com.google.ios.youtube.7LGY4NE2VM - {DEFAULT GROUP}/downscaled
-setting to newPath: /private/var/mobile/Containers/Data/Application/0305CB9D-3A49-4E6F-973B-CDF3EDED9661/Library/SplashBoard/Snapshots/com.google.ios.youtube.7LGY4NE2VM - {DEFAULT GROUP}/downscaled/AF8A896F-2770-4936-9557-B5F5B5E4E76A@3x.ktx
-Apr  9 15:37:59.571107 SpringBoard(SplashBoard)[620] <Info>: <XBApplicationSnapshot: 0x889cfdf80; …B5F5B5E4E76A> [com.google.ios.youtube.7LGY4NE2VM] Sanitizing new path before set /private/var/mobile/Containers/Data/Application/0305CB9D-3A49-4E6F-973B-CDF3EDED9661/Library/SplashBoard/Snapshots/com.google.ios.youtube.7LGY4NE2VM - {DEFAULT GROUP}/downscaled/AF8A896F-2770-4936-9557-B5F5B5E4E76A@3x.ktx
-Apr  9 15:37:59.571649 SpringBoard(SplashBoard)[620] <Info>: <XBApplicationSnapshot: 0x889cfdf80; …B5F5B5E4E76A> [com.google.ios.youtube.7LGY4NE2VM] Snapshot rebuilt absolute path to: /private/var/mobile/Containers/Data/Application/0305CB9D-3A49-4E6F-973B-CDF3EDED9661/Library/SplashBoard/Snapshots/com.google.ios.youtube.7LGY4NE2VM - {DEFAULT GROUP}/downscaled/AF8A896F-2770-4936-9557-B5F5B5E4E76A@3x.ktx
-calculated rootPath of /private/var/mobile/Containers/Data/Application/0305CB9D-3A49-4E6F-973B-CDF3EDED9661/Library/SplashBoard/Snapshots/com.google.ios.youtube.7LGY4NE2VM - {DEFAULT GROUP}
-setting to newPath: /private/var/mobile/Containers/Data/Application/0305CB9D-3A49-4E6F-973B-CDF3EDED9661/Library/SplashBoard/Snapshots/com.google.ios.youtube.7LGY4NE2VM - {DEFAULT GROUP}/D8BDE48D-80B7-49EF-99A0-0AA880DB3DC6@3x.ktx
-Apr  9 15:37:59.571753 SpringBoard(SplashBoard)[620] <Info>: <XBApplicationSnapshot: 0x889cfe140; …0AA880DB3DC6> [com.google.ios.youtube.7LGY4NE2VM] Sanitizing new path before set /private/var/mobile/Containers/Data/Application/0305CB9D-3A49-4E6F-973B-CDF3EDED9661/Library/SplashBoard/Snapshots/com.google.ios.youtube.7LGY4NE2VM - {DEFAULT GROUP}/D8BDE48D-80B7-49EF-99A0-0AA880DB3DC6@3x.ktx
-Apr  9 15:37:59.571850 SpringBoard(SplashBoard)[620] <Info>: <XBApplicationSnapshot: 0x889cfe140; …0AA880DB3DC6> [com.google.ios.youtube.7LGY4NE2VM] Snapshot rebuilt absolute path to: /private/var/mobile/Containers/Data/Application/0305CB9D-3A49-4E6F-973B-CDF3EDED9661/Library/SplashBoard/Snapshots/com.google.ios.youtube.7LGY4NE2VM - {DEFAULT GROUP}/D8BDE48D-80B7-49EF-99A0-0AA880DB3DC6@3x.ktx
