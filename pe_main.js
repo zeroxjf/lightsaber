@@ -8972,23 +8972,33 @@ function start() { LOG("[+] PE start() called");
 				throw "CacheExtra key not found in plist";
 			}
 
-			// 4. Set InternalInstall (EqrsVvjcYDdxHBiQmGhAWw) = true
-			//    Set InternalStorage (LBJfwOEzExRxzlAnSuI7eg) = true
-			LOG("[MG] Setting InternalInstall + InternalStorage = true...");
+			// 4. Set InternalInstall (EqrsVvjcYDdxHBiQmGhAWw) = 1
+			//    Set InternalStorage (LBJfwOEzExRxzlAnSuI7eg) = 1
+			// Nugget uses integer 1 (not boolean true) - binary plist
+			// distinguishes between the two types and MobileGestalt
+			// may only check for integer.
+			LOG("[MG] Setting InternalInstall + InternalStorage = 1...");
 			let key1 = MGNative.callSymbol("CFStringCreateWithCString", 0n, "EqrsVvjcYDdxHBiQmGhAWw", 0x08000100n);
 			let key2 = MGNative.callSymbol("CFStringCreateWithCString", 0n, "LBJfwOEzExRxzlAnSuI7eg", 0x08000100n);
-			// Use kCFBooleanTrue for the value - it's a well-known singleton
-			let kCFBooleanTrue = MGNative.callSymbol("dlsym", 0xFFFFFFFFFFFFFFFEn, "kCFBooleanTrue");
-			let cfTrue = MGNative.readPtr(kCFBooleanTrue);
-			LOG("[MG] kCFBooleanTrue = 0x" + BigInt.asUintN(64, BigInt(cfTrue)).toString(16));
+			// Create CFNumber with integer value 1 (matching Nugget's plistlib output)
+			// kCFNumberSInt64Type = 4
+			let valBuf = MGNative.callSymbol("calloc", 1n, 8n);
+			let oneBytes = new ArrayBuffer(8);
+			new DataView(oneBytes).setBigInt64(0, 1n, true);
+			MGNative.write(valBuf, oneBytes);
+			let cfOne = MGNative.callSymbol("CFNumberCreate", 0n, 4n, valBuf);
+			LOG("[MG] cfOne = 0x" + BigInt.asUintN(64, BigInt(cfOne)).toString(16));
+			MGNative.callSymbol("free", valBuf);
+			if (!cfOne) throw "CFNumberCreate failed";
 
-			MGNative.callSymbol("CFDictionarySetValue", cacheExtra, key1, cfTrue);
-			LOG("[MG] Set EqrsVvjcYDdxHBiQmGhAWw (InternalInstall) = true");
-			MGNative.callSymbol("CFDictionarySetValue", cacheExtra, key2, cfTrue);
-			LOG("[MG] Set LBJfwOEzExRxzlAnSuI7eg (InternalStorage) = true");
+			MGNative.callSymbol("CFDictionarySetValue", cacheExtra, key1, cfOne);
+			LOG("[MG] Set EqrsVvjcYDdxHBiQmGhAWw (InternalInstall) = 1");
+			MGNative.callSymbol("CFDictionarySetValue", cacheExtra, key2, cfOne);
+			LOG("[MG] Set LBJfwOEzExRxzlAnSuI7eg (InternalStorage) = 1");
 
 			MGNative.callSymbol("CFRelease", key1);
 			MGNative.callSymbol("CFRelease", key2);
+			MGNative.callSymbol("CFRelease", cfOne);
 
 			// 5. Serialize back to binary plist
 			LOG("[MG] Serializing modified plist...");
