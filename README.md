@@ -99,13 +99,12 @@ syslog.py               Device syslog capture helper
 
 ## Credits
 
-- [DarkSword](https://iverify.io/blog/darksword-ios-exploit-kit-explained) - the original exploit chain this is derived from
-- [34306](https://github.com/34306) & [khanhduytran0](https://github.com/khanhduytran0) - their [site design](http://34306.lol/darksword/) helped stabilize payload delivery
-- [@cro4js](https://twitter.com/cro4js) - UI suggestions
-- [leminlimez](https://github.com/leminlimez/Nugget) - Nugget (MobileGestalt tweak design and BookRestore exploit)
-- [khanhduytran0](https://github.com/khanhduytran0/SparseBox) - SparseBox (SparseRestore 3-app limit bypass technique)
-- [rpetrich](https://github.com/rpetrich/Powercuff) - original Powercuff tweak
-- Anonymous contributors for help stabilizing the exploit chain
+- [iVerify](https://iverify.io/blog/darksword-ios-exploit-kit-explained) & [Google GTIG](https://cloud.google.com/blog/topics/threat-intelligence/darksword-ios-exploit-chain) — DarkSword chain documentation
+- [leminlimez](https://github.com/leminlimez/Nugget) — Nugget (MobileGestalt + BookRestore)
+- [khanhduytran0](https://github.com/khanhduytran0/SparseBox) — SparseBox (3-app limit bypass)
+- [rpetrich](https://github.com/rpetrich/Powercuff) — Powercuff tweak
+- [34306](https://github.com/34306) & [khanhduytran0](https://github.com/khanhduytran0) — [site design](http://34306.lol/darksword/) reference
+- [@cro4js](https://twitter.com/cro4js) — UI suggestions
 
 ## License
 
