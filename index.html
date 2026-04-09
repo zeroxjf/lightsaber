@@ -1082,7 +1082,8 @@
     </div>
 
     <div class="section">
-      <p id="supportMsg" style="font-size:0.78rem;color:var(--muted);margin-bottom:10px"></p>
+      <p id="supportMsg" style="font-size:0.78rem;margin-bottom:4px"></p>
+      <p style="font-size:0.7rem;color:var(--faint);margin-bottom:10px">A12&ndash;A18 Pro &middot; iOS 18.4&ndash;18.6.2</p>
 
       <div class="tweak-list">
         <div class="tweak-section-label">SpringBoard</div>
@@ -1450,23 +1451,23 @@
     var canRun = false;
 
     var supportText = '';
-    var supportClass = '';
-    var supportedNote = 'Supported: A12\u2013A18 Pro on iOS 18.4\u201318.6.2';
+    var supportColor = '';
     if (!isIphone) {
-      supportClass = 'unsupported';
-      supportText = 'Not an iPhone. ' + supportedNote + '.';
+      supportColor = '#b91c1c';
+      supportText = 'Not an iPhone';
     } else if (major < 18 || (major === 18 && minor < 4)) {
-      supportClass = 'unsupported';
-      supportText = 'iOS ' + iosVer + ' \u2014 not supported. ' + supportedNote + '.';
+      supportColor = '#b91c1c';
+      supportText = 'iOS ' + iosVer + ' \u2014 not supported';
     } else if (major === 18 && minor >= 4 && (minor < 6 || (minor === 6 && patch <= 2))) {
-      supportClass = 'supported';
+      supportColor = '#15803d';
       supportText = 'iOS ' + iosVer + ' \u2014 supported';
       canRun = true;
     } else {
-      supportClass = 'unsupported';
-      supportText = 'iOS ' + iosVer + ' \u2014 not yet supported. ' + supportedNote + '.';
+      supportColor = '#b91c1c';
+      supportText = 'iOS ' + iosVer + ' \u2014 not yet supported';
     }
-    supportMsg.className = supportClass;
+    supportMsg.style.color = supportColor;
+    supportMsg.style.fontWeight = '600';
     supportMsg.textContent = supportText;
 
     var runBtn = document.getElementById('runBtn');
