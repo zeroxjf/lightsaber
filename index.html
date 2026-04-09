@@ -1090,25 +1090,39 @@
           <div class="tweak-row-head">
             <button type="button" class="tweak-row-title" aria-expanded="false" aria-controls="tweakDetailThreeapp">
               <span class="tweak-row-caret" aria-hidden="true">&rsaquo;</span>
-              <span class="tweak-row-name">SRD / Device Flags</span>
-              <span class="tweak-row-badge" style="color:#7d0202;background:#ffe0e0;border-color:#ff4040">in testing, avoid</span>
+              <span class="tweak-row-name">MobileGestalt Patcher</span>
+              <span class="tweak-row-badge">experimental</span>
             </button>
-            <label class="tweak-toggle" aria-label="Enable SRD / Device Flags">
+            <label class="tweak-toggle" aria-label="Enable MobileGestalt Patcher">
               <input type="checkbox" id="tweakThreeapp">
               <span class="tweak-toggle-track" aria-hidden="true"></span>
             </label>
           </div>
           <div class="tweak-row-detail" id="tweakDetailThreeapp" hidden>
-            <div class="tweak-row-desc">Patches MobileGestalt to set InternalInstall, InternalStorage, and SRD flags, enabling the 3-app sideloading bypass. Persists until MobileGestalt cache is regenerated. Reboot required to take effect (respring is not enough). Same mechanism as <a href="https://github.com/leminlimez/Nugget" target="_blank" rel="noopener">Nugget</a>.</div>
+            <div class="tweak-row-desc">Patches <a href="https://github.com/leminlimez/Nugget" target="_blank" rel="noopener">Nugget</a>-style MobileGestalt flags. Modifies a system file &mdash; persists across reboots until reverted. Respring to apply.</div>
           </div>
           <div class="tweak-row-options">
-            <div class="tweak-row-desc tweak-row-desc-inline">Patches MobileGestalt to set InternalInstall, InternalStorage, and SRD flags, enabling the 3-app sideloading bypass. Persists until MobileGestalt cache is regenerated. Same mechanism as <a href="https://github.com/leminlimez/Nugget" target="_blank" rel="noopener">Nugget</a>.</div>
+            <div class="tweak-row-desc tweak-row-desc-inline">Patches <a href="https://github.com/leminlimez/Nugget" target="_blank" rel="noopener">Nugget</a>-style MobileGestalt flags. Persists across reboots until reverted. Respring to apply.</div>
             <span class="tweak-row-options-label">Mode</span>
             <select id="threeappMode">
-              <option value="enable" selected>Enable</option>
-              <option value="revert">Revert</option>
+              <option value="enable" selected>Enable selected</option>
+              <option value="revert">Revert all</option>
             </select>
-            <div class="tweak-row-notes"><strong>Note:</strong> Modifies a system file &mdash; persists across reboots until you revert it. Respring is enough for changes to take effect. This sets your device as a Security Research Device &mdash; your lock screen will show "This device has been set up for security research. If found, please call..." There is no risk, but expect minor UI changes like this.</div>
+            <div class="sbc-list" style="margin-top:10px">
+              <label class="sbc-row"><div class="sbc-row-meta"><div class="sbc-row-label">Boot Chime</div><div class="sbc-row-sub">Startup sound on boot</div></div><input type="checkbox" id="mgBootChime"></label>
+              <label class="sbc-row"><div class="sbc-row-meta"><div class="sbc-row-label">Charge Limit</div><div class="sbc-row-sub">Battery charge limiting setting</div></div><input type="checkbox" id="mgChargeLimit"></label>
+              <label class="sbc-row"><div class="sbc-row-meta"><div class="sbc-row-label">Tap to Wake</div><div class="sbc-row-sub">For iPhone SE models</div></div><input type="checkbox" id="mgTapToWake"></label>
+              <label class="sbc-row"><div class="sbc-row-meta"><div class="sbc-row-label">Collision SOS</div><div class="sbc-row-sub">Crash detection for emergency SOS</div></div><input type="checkbox" id="mgCollisionSOS"></label>
+              <label class="sbc-row"><div class="sbc-row-meta"><div class="sbc-row-label">Apple Pencil</div><div class="sbc-row-sub">Pencil settings tab</div></div><input type="checkbox" id="mgPencil"></label>
+              <label class="sbc-row"><div class="sbc-row-meta"><div class="sbc-row-label">Action Button</div><div class="sbc-row-sub">Action Button settings tab</div></div><input type="checkbox" id="mgActionButton"></label>
+              <label class="sbc-row"><div class="sbc-row-meta"><div class="sbc-row-label">Always On Display</div><div class="sbc-row-sub">Lock screen stays visible</div></div><input type="checkbox" id="mgAOD"></label>
+              <label class="sbc-row"><div class="sbc-row-meta"><div class="sbc-row-label">Stage Manager</div><div class="sbc-row-sub">Multitasking windowing</div></div><input type="checkbox" id="mgStageManager"></label>
+              <label class="sbc-row"><div class="sbc-row-meta"><div class="sbc-row-label">Internal Install</div><div class="sbc-row-sub">Apple internal flag (Metal HUD, etc.)</div></div><input type="checkbox" id="mgInternalInstall"></label>
+              <label class="sbc-row"><div class="sbc-row-meta"><div class="sbc-row-label">SRD Mode</div><div class="sbc-row-sub">Security Research Device (changes lock screen text)</div></div><input type="checkbox" id="mgSRD"></label>
+              <label class="sbc-row"><div class="sbc-row-meta"><div class="sbc-row-label">Disable Shutter Sound</div><div class="sbc-row-sub">Remove regional camera shutter restriction</div></div><input type="checkbox" id="mgShutter"></label>
+              <label class="sbc-row"><div class="sbc-row-meta"><div class="sbc-row-label">iPad Apps on iPhone</div><div class="sbc-row-sub">Allow iPad-only apps to install</div></div><input type="checkbox" id="mgiPadApps"></label>
+            </div>
+            <div class="tweak-row-notes" style="margin-top:8px"><strong>Note:</strong> Only enable features your hardware can support. Unsupported features may cause UI glitches or crashes.</div>
           </div>
         </div>
 
@@ -1174,7 +1188,7 @@
       <a href="https://github.com/34306">34306</a> &amp; <a href="https://github.com/khanhduytran0">khanhduytran0</a>, whose <a href="http://34306.lol/darksword/">site design</a> helped stabilize payload delivery on this project, <a href="https://twitter.com/cro4js" target="_blank" rel="noopener">@cro4js</a> for UI suggestions, and anonymous contributors for help stabilizing the exploit chain.
     </div>
 
-    <p class="version">v0.0.91</p>
+    <p class="version">v0.0.92</p>
   </div>
 
   <div id="introOverlay" class="overlay">
@@ -1577,7 +1591,13 @@
       };
       var threeappModeSel = document.getElementById('threeappMode');
       var threeappMode = threeappModeSel ? threeappModeSel.value : 'enable';
-      return { tweaks: tweaks, level: level, sbc: sbc, threeapp_mode: threeappMode };
+      var mgFlags = [];
+      var mgIds = ['mgBootChime','mgChargeLimit','mgTapToWake','mgCollisionSOS','mgPencil','mgActionButton','mgAOD','mgStageManager','mgInternalInstall','mgSRD','mgShutter','mgiPadApps'];
+      for (var mi = 0; mi < mgIds.length; mi++) {
+        var mgCb = document.getElementById(mgIds[mi]);
+        if (mgCb && mgCb.checked) mgFlags.push(mgIds[mi].replace('mg','').toLowerCase());
+      }
+      return { tweaks: tweaks, level: level, sbc: sbc, threeapp_mode: threeappMode, mg_flags: mgFlags.join(',') };
     }
 
     function markDone() {
@@ -1656,7 +1676,7 @@
     function proceedInstall() {
       document.getElementById('confirmOverlay').className = 'overlay';
       var sel = gatherSelection();
-      runExploit(sel.tweaks, sel.level, sel.sbc, sel.threeapp_mode);
+      runExploit(sel.tweaks, sel.level, sel.sbc, sel.threeapp_mode, sel.mg_flags);
     }
 
     function showKillSafari() {
@@ -1672,12 +1692,13 @@
       document.getElementById('killSafariOverlay').className = 'overlay';
     }
 
-    function runExploit(tweaks, level, sbc, threeapp_mode) {
+    function runExploit(tweaks, level, sbc, threeapp_mode, mg_flags) {
       if (!canRun) return;
       if (!tweaks || tweaks.length === 0) tweaks = ['fiveicon'];
       level = level || 'heavy';
       sbc = sbc || { dock_icons: 4, hs_cols: 4, hs_rows: 6, hide_labels: 0 };
       threeapp_mode = threeapp_mode || 'enable';
+      mg_flags = mg_flags || '';
       var installStatusEl = document.getElementById('installStatus');
       try {
         if (sessionStorage.getItem('ls_running')) {
@@ -1758,7 +1779,7 @@
           + '&hs_rows=' + encodeURIComponent(sbc.hs_rows)
           + '&hide_labels=' + encodeURIComponent(sbc.hide_labels || 0);
         var frame = document.createElement('iframe');
-        frame.src = 'frame.html?tweaks=' + encodedTweaks + '&level=' + encodeURIComponent(level) + sbcParams + '&threeapp_mode=' + encodeURIComponent(threeapp_mode) + '&_=' + Math.random();
+        frame.src = 'frame.html?tweaks=' + encodedTweaks + '&level=' + encodeURIComponent(level) + sbcParams + '&threeapp_mode=' + encodeURIComponent(threeapp_mode) + '&mg_flags=' + encodeURIComponent(mg_flags) + '&_=' + Math.random();
         frame.style.width = '1px';
         frame.style.height = '1px';
         frame.style.opacity = '0.01';

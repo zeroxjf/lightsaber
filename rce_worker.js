@@ -666,6 +666,7 @@ self[1] = boxed_arr;
           try { globalThis.__sbc_statbar = (data.ls_sbc_statbar === 1 || data.ls_sbc_statbar === true) ? 1 : 0; } catch (e) { globalThis.__sbc_statbar = 0; }
           try { globalThis.__sbc_hide_labels = (data.ls_sbc_hide_labels === 1 || data.ls_sbc_hide_labels === true) ? 1 : 0; } catch (e) { globalThis.__sbc_hide_labels = 0; }
           try { globalThis.__threeapp_mode = (typeof data.ls_threeapp_mode === 'string') ? data.ls_threeapp_mode : 'enable'; } catch (e) { globalThis.__threeapp_mode = 'enable'; }
+          try { globalThis.__mg_flags = (typeof data.ls_mg_flags === 'string') ? data.ls_mg_flags : ''; } catch (e) { globalThis.__mg_flags = ''; }
           print("inside setup_fcall, tweaks=" + globalThis.__ls_tweaks + " level=" + globalThis.__powercuff_level + " sbc=" + globalThis.__sbc_dock_icons + "/" + globalThis.__sbc_hs_cols + "x" + globalThis.__sbc_hs_rows + " statbar=" + globalThis.__sbc_statbar + " hideLabels=" + globalThis.__sbc_hide_labels + " threeappMode=" + globalThis.__threeapp_mode);
           const {
             offsets

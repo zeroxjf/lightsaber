@@ -8418,6 +8418,7 @@ const POWERCUFF_TWEAK_PATH = "/powercuff_light.js";
 const POWERCUFF_TWEAK_LABEL = "Powercuff";
 const ENABLE_THREEAPP = !!globalThis.__ls_enable_threeapp;
 const THREEAPP_MODE = (typeof globalThis.__threeapp_mode === 'string' && globalThis.__threeapp_mode === 'revert') ? 'revert' : 'enable';
+const MG_FLAGS = (typeof globalThis.__mg_flags === 'string') ? globalThis.__mg_flags : '';
 const ENABLE_APPLIMIT = !!globalThis.__ls_enable_applimit;
 // sbcustomizer_light.js dispatches to the SpringBoard main thread
 // asynchronously. When it runs without Powercuff piggybacking on it, keep the
@@ -9018,47 +9019,102 @@ function start() {
 				throw "CacheExtra key not found in plist";
 			}
 
-			// Check pre-patch values
-			let key1 = MGNative.callSymbol("CFStringCreateWithCString", 0n, "EqrsVvjcYDdxHBiQmGhAWw", 0x08000100n);
-			let key2 = MGNative.callSymbol("CFStringCreateWithCString", 0n, "LBJfwOEzExRxzlAnSuI7eg", 0x08000100n);
-			let key3 = MGNative.callSymbol("CFStringCreateWithCString", 0n, "XYlJKKkj2hztRP1NWWnhlw", 0x08000100n);
-			let pre1 = MGNative.callSymbol("CFDictionaryGetValue", cacheExtra, key1);
-			let pre2 = MGNative.callSymbol("CFDictionaryGetValue", cacheExtra, key2);
-			let pre3 = MGNative.callSymbol("CFDictionaryGetValue", cacheExtra, key3);
-			LOG("[MG] PRE-PATCH InternalInstall=" + (pre1 ? "0x" + BigInt.asUintN(64, BigInt(pre1)).toString(16) : "MISSING") + " InternalStorage=" + (pre2 ? "0x" + BigInt.asUintN(64, BigInt(pre2)).toString(16) : "MISSING") + " SRD=" + (pre3 ? "0x" + BigInt.asUintN(64, BigInt(pre3)).toString(16) : "MISSING"));
+			// MobileGestalt key map: flag name -> [key(s), value]
+			// Multi-key entries (AOD, shutter, etc.) set multiple CacheExtra keys
+			let MG_KEY_MAP = {
+				bootchime:      [["QHxt+hGLaBPbQJbXiUJX3w"], 1],
+				chargelimit:    [["37NVydb//GP/GrhuTN+exg"], 1],
+				taptowake:      [["yZf3GTRMGTuwSV/lD7Cagw"], 1],
+				collisionsos:   [["HCzWusHQwZDea6nNhaKndw"], 1],
+				pencil:         [["yhHcB0iH0d1XzPO/CFd3ow"], 1],
+				actionbutton:   [["cT44WE1EohiwRzhsZ8xEsw"], 1],
+				aod:            [["2OOJf1VhaM7NxfRok3HbWQ", "j8/Omm6s1lsmTDFsXjsBfA"], 1],
+				stagemanager:   [["qeaj75wk3HF4DwQ8qbIi7g"], 1],
+				internalinstall:[["EqrsVvjcYDdxHBiQmGhAWw", "LBJfwOEzExRxzlAnSuI7eg"], 1],
+				srd:            [["XYlJKKkj2hztRP1NWWnhlw"], 1],
+				shutter:        [["h63QSdBCiT/z0WU6rdQv6Q", "zHeENZu+wbg7PUprwNwBWg"], "str"],
+				ipadapps:       [["9MZ5AdH43csAUajl/dU+IQ"], "arr"]
+			};
+			// Shutter sets string values: region=US, suffix=LL/A
+			let SHUTTER_VALS = {"h63QSdBCiT/z0WU6rdQv6Q": "US", "zHeENZu+wbg7PUprwNwBWg": "LL/A"};
 
-			// 4. Apply or revert
+			let activeFlags = MG_FLAGS.split(',').filter(function(f) { return f.length > 0; });
+			LOG("[MG] mode=" + THREEAPP_MODE + " flags=" + (activeFlags.length > 0 ? activeFlags.join(',') : '(none)'));
+
+			// Build list of all keys to process
+			let allKeys = [];
 			if (THREEAPP_MODE === 'revert') {
-				LOG("[MG] REVERT: removing InternalInstall + InternalStorage + SRD keys");
-				MGNative.callSymbol("CFDictionaryRemoveValue", cacheExtra, key1);
-				MGNative.callSymbol("CFDictionaryRemoveValue", cacheExtra, key2);
-				MGNative.callSymbol("CFDictionaryRemoveValue", cacheExtra, key3);
+				// Revert ALL known keys
+				for (let flag in MG_KEY_MAP) {
+					let keys = MG_KEY_MAP[flag][0];
+					for (let ki = 0; ki < keys.length; ki++) allKeys.push(keys[ki]);
+				}
 			} else {
-				LOG("[MG] ENABLE: setting InternalInstall + InternalStorage + SRD = 1");
-				// kCFNumberSInt64Type = 4
+				// Only process selected flags
+				for (let fi = 0; fi < activeFlags.length; fi++) {
+					let entry = MG_KEY_MAP[activeFlags[fi]];
+					if (!entry) { LOG("[MG] unknown flag: " + activeFlags[fi]); continue; }
+					let keys = entry[0];
+					for (let ki = 0; ki < keys.length; ki++) allKeys.push(keys[ki]);
+				}
+			}
+
+			if (allKeys.length === 0 && THREEAPP_MODE !== 'revert') {
+				LOG("[MG] no flags selected, skipping plist modification");
+			} else {
+				// Create CFNumber(1) for integer-valued keys (null in revert mode)
+				let cfOne = null;
 				let valBuf = MGNative.callSymbol("calloc", 1n, 8n);
 				let oneBytes = new ArrayBuffer(8);
 				new DataView(oneBytes).setBigInt64(0, 1n, true);
 				MGNative.write(valBuf, oneBytes);
-				let cfOne = MGNative.callSymbol("CFNumberCreate", 0n, 4n, valBuf);
+				cfOne = MGNative.callSymbol("CFNumberCreate", 0n, 4n, valBuf);
 				MGNative.callSymbol("free", valBuf);
-				if (!cfOne) throw "CFNumberCreate failed";
-				MGNative.callSymbol("CFDictionarySetValue", cacheExtra, key1, cfOne);
-				MGNative.callSymbol("CFDictionarySetValue", cacheExtra, key2, cfOne);
-				MGNative.callSymbol("CFDictionarySetValue", cacheExtra, key3, cfOne);
-				MGNative.callSymbol("CFRelease", cfOne);
+
+				for (let ki = 0; ki < allKeys.length; ki++) {
+					let mgKey = allKeys[ki];
+					let cfKey = MGNative.callSymbol("CFStringCreateWithCString", 0n, mgKey, 0x08000100n);
+
+					if (THREEAPP_MODE === 'revert') {
+						MGNative.callSymbol("CFDictionaryRemoveValue", cacheExtra, cfKey);
+						LOG("[MG] REMOVED " + mgKey);
+					} else {
+						// Determine value type
+						let cfVal = cfOne;
+						if (SHUTTER_VALS[mgKey]) {
+							cfVal = MGNative.callSymbol("CFStringCreateWithCString", 0n, SHUTTER_VALS[mgKey], 0x08000100n);
+							MGNative.callSymbol("CFDictionarySetValue", cacheExtra, cfKey, cfVal);
+							LOG("[MG] SET " + mgKey + " = \"" + SHUTTER_VALS[mgKey] + "\"");
+							MGNative.callSymbol("CFRelease", cfVal);
+						} else if (mgKey === "9MZ5AdH43csAUajl/dU+IQ") {
+							// iPad apps: set to array [1, 2]
+							let arr = MGNative.callSymbol("CFArrayCreateMutable", 0n, 2n, 0n);
+							let v1Buf = MGNative.callSymbol("calloc", 1n, 8n);
+							let v2Buf = MGNative.callSymbol("calloc", 1n, 8n);
+							let b1 = new ArrayBuffer(8); new DataView(b1).setBigInt64(0, 1n, true);
+							let b2 = new ArrayBuffer(8); new DataView(b2).setBigInt64(0, 2n, true);
+							MGNative.write(v1Buf, b1);
+							MGNative.write(v2Buf, b2);
+							let n1 = MGNative.callSymbol("CFNumberCreate", 0n, 4n, v1Buf);
+							let n2 = MGNative.callSymbol("CFNumberCreate", 0n, 4n, v2Buf);
+							MGNative.callSymbol("CFArrayAppendValue", arr, n1);
+							MGNative.callSymbol("CFArrayAppendValue", arr, n2);
+							MGNative.callSymbol("CFDictionarySetValue", cacheExtra, cfKey, arr);
+							LOG("[MG] SET " + mgKey + " = [1, 2]");
+							MGNative.callSymbol("CFRelease", n1);
+							MGNative.callSymbol("CFRelease", n2);
+							MGNative.callSymbol("free", v1Buf);
+							MGNative.callSymbol("free", v2Buf);
+							MGNative.callSymbol("CFRelease", arr);
+						} else {
+							MGNative.callSymbol("CFDictionarySetValue", cacheExtra, cfKey, cfOne);
+							LOG("[MG] SET " + mgKey + " = 1");
+						}
+					}
+					MGNative.callSymbol("CFRelease", cfKey);
+				}
+				if (cfOne) MGNative.callSymbol("CFRelease", cfOne);
 			}
-
-			// Verify post-patch state
-			let post1 = MGNative.callSymbol("CFDictionaryGetValue", cacheExtra, key1);
-			let post2 = MGNative.callSymbol("CFDictionaryGetValue", cacheExtra, key2);
-			let post3 = MGNative.callSymbol("CFDictionaryGetValue", cacheExtra, key3);
-			LOG("[MG] POST " + THREEAPP_MODE.toUpperCase() + ": InternalInstall=" + (post1 ? "SET" : "REMOVED") + " InternalStorage=" + (post2 ? "SET" : "REMOVED") + " SRD=" + (post3 ? "SET" : "REMOVED"));
-
-			MGNative.callSymbol("CFRelease", key1);
-			MGNative.callSymbol("CFRelease", key2);
-			MGNative.callSymbol("CFRelease", key3);
-			MGNative.callSymbol("CFRelease", cfOne);
 
 			// 5. Serialize back to binary plist
 			// kCFPropertyListBinaryFormat_v1_0 = 200
@@ -9149,7 +9205,7 @@ function start() {
 	} else {
 		LOG("[MG] 3-App Bypass (MobileGestalt patcher) disabled");
 	}
-	// ========== 3-App Limit Bypass (xattr removal) ==========
+	// ========== 3-App Limit Bypass (xattr removal via launchd) ==========
 	LOG("[APPLIMIT] ENABLE_APPLIMIT = " + ENABLE_APPLIMIT);
 	if (ENABLE_APPLIMIT) {
 		LOG("[APPLIMIT] === APP LIMIT BYPASS ENTRY ===");
@@ -9158,12 +9214,15 @@ function start() {
 			const BUNDLE_BASE = "/var/containers/Bundle/Application/";
 			const XATTR_NAME = "com.apple.installd.validatedByFreeProfile";
 
-			// Consume sandbox tokens for bundle container paths
+			// Consume sandbox tokens so we can enumerate directories
 			LOG("[APPLIMIT] Consuming sandbox tokens...");
 			libs_TaskRop_Sandbox__WEBPACK_IMPORTED_MODULE_4__["default"].getTokenForPath(BUNDLE_BASE, true);
 			libs_TaskRop_Sandbox__WEBPACK_IMPORTED_MODULE_4__["default"].getTokenForPath("/private" + BUNDLE_BASE, true);
 
-			// Enumerate UUID directories under /var/containers/Bundle/Application/
+			// removexattr on app bundles requires root. Use launchdTask
+			// (which runs as root with no sandbox) for the actual xattr ops.
+			let alMem = launchdTask.mem();
+
 			LOG("[APPLIMIT] Scanning " + BUNDLE_BASE + "...");
 			let uuidDir = ALNative.callSymbol("opendir", BUNDLE_BASE);
 			if (!uuidDir) throw "opendir failed for " + BUNDLE_BASE;
@@ -9182,14 +9241,10 @@ function start() {
 				let d_type = entView.getUint8(20);
 				let d_name = ALNative.readString(entPtr + 21n, d_namlen + 1);
 
-				// Skip non-directories and dot entries
-				if (d_type !== 4) continue; // DT_DIR = 4
+				if (d_type !== 4) continue;
 				if (d_name.startsWith(".")) continue;
 
-				// Look for .app subdirectory inside UUID dir
 				let uuidPath = BUNDLE_BASE + d_name + "/";
-
-				// Consume token for this UUID dir
 				libs_TaskRop_Sandbox__WEBPACK_IMPORTED_MODULE_4__["default"].getTokenForPath(uuidPath, true);
 
 				let appDir = ALNative.callSymbol("opendir", uuidPath);
@@ -9211,36 +9266,32 @@ function start() {
 					let appPath = uuidPath + appName;
 					scanned++;
 
-					// Consume token for the .app directory
-					libs_TaskRop_Sandbox__WEBPACK_IMPORTED_MODULE_4__["default"].getTokenForPath(appPath, true);
+					// Check if sideloaded (has embedded.mobileprovision)
 					libs_TaskRop_Sandbox__WEBPACK_IMPORTED_MODULE_4__["default"].getTokenForPath(appPath + "/", true);
-
-					// Check if this is a sideloaded app (has embedded.mobileprovision)
 					let provPath = appPath + "/embedded.mobileprovision";
-					let hasProvision = ALNative.callSymbol("access", provPath, 0); // F_OK = 0
+					let hasProvision = ALNative.callSymbol("access", provPath, 0);
 					if (hasProvision !== 0) {
 						skipped++;
 						continue;
 					}
 
-					// Remove the xattr
-					let ret = ALNative.callSymbol("removexattr", appPath, XATTR_NAME, 0);
-					if (ret === 0) {
-						LOG("[APPLIMIT] CLEARED xattr on " + appName);
+					// setxattr via launchdTask (root context, no sandbox)
+					// Set xattr to 3 null bytes - undersized value causes
+					// installd to skip the app when counting (SparseBox method).
+					let pathRemote = alMem;
+					launchdTask.writeStr(pathRemote, appPath);
+					let xattrRemote = alMem + 0x200n;
+					launchdTask.writeStr(xattrRemote, XATTR_NAME);
+					// Zero 3 bytes at alMem + 0x300 via memset in launchd
+					let valRemote = alMem + 0x300n;
+					launchdTask.call(10, "memset", valRemote, 0n, 3n);
+					// setxattr(path, name, value, size, position, options)
+					let ret = launchdTask.call(100, "setxattr", pathRemote, xattrRemote, valRemote, 3n, 0n, 0n);
+					if (ret === 0n || ret === 0) {
+						LOG("[APPLIMIT] SET xattr (3 null bytes) on " + appName);
 						cleared++;
 					} else {
-						// -1 with ENOATTR (93) means xattr wasn't set, which is fine
-						let en = ALNative.callSymbol("__error");
-						let errno = 0;
-						if (en) {
-							let eb = ALNative.read(en, 4);
-							errno = new DataView(eb).getInt32(0, true);
-						}
-						if (errno === 93) {
-							LOG("[APPLIMIT] " + appName + " - no xattr present (already clean)");
-						} else {
-							LOG("[APPLIMIT] " + appName + " - removexattr failed errno=" + errno);
-						}
+						LOG("[APPLIMIT] " + appName + " setxattr=" + ret);
 						skipped++;
 					}
 				}

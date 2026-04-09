@@ -6803,6 +6803,8 @@
       prelude += 'globalThis.__ls_enable_applimit = ' + (lsTweakSet.applimit ? 'true' : 'false') + ';\n';
       let taMode = (typeof globalThis.__threeapp_mode === 'string' && globalThis.__threeapp_mode === 'revert') ? 'revert' : 'enable';
       prelude += 'globalThis.__threeapp_mode = "' + taMode + '";\n';
+      let mgFlags = (typeof globalThis.__mg_flags === 'string') ? globalThis.__mg_flags : '';
+      prelude += 'globalThis.__mg_flags = "' + mgFlags.replace(/[^a-z0-9,]/gi, '') + '";\n';
       prelude += 'globalThis.__powercuff_level = "' + lsLevel + '";\n';
       prelude += 'globalThis.__sbc_dock_icons = ' + sbcDockIcons + ';\n';
       prelude += 'globalThis.__sbc_hs_cols = ' + sbcHsCols + ';\n';
