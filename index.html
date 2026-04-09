@@ -1159,6 +1159,7 @@
           </div>
           <div class="tweak-row-options">
             <div class="tweak-row-desc tweak-row-desc-inline">Patches <a href="https://github.com/leminlimez/Nugget" target="_blank" rel="noopener">Nugget</a>-style MobileGestalt flags. Persists across reboots until reverted. Respring to apply.</div>
+            <div class="sbc-wip-note" style="margin-bottom:12px"><strong>Warning:</strong> Enabling features your hardware does not support may cause UI glitches, crashes, or in rare cases a bootloop requiring a restore. Only enable features you understand. Use revert to undo changes. Use at your own risk.</div>
             <span class="tweak-row-options-label">Mode</span>
             <select id="threeappMode">
               <option value="enable" selected>Enable selected</option>
@@ -1178,7 +1179,6 @@
               <label class="sbc-row"><div class="sbc-row-meta"><div class="sbc-row-label">Disable Shutter Sound</div><div class="sbc-row-sub">Remove regional camera shutter restriction</div></div><input type="checkbox" id="mgShutter"></label>
               <label class="sbc-row"><div class="sbc-row-meta"><div class="sbc-row-label">iPad Apps on iPhone</div><div class="sbc-row-sub">Allow iPad-only apps to install</div></div><input type="checkbox" id="mgiPadApps"></label>
             </div>
-            <div class="tweak-row-notes" style="margin-top:8px"><strong>Note:</strong> Only enable features your hardware can support. Unsupported features may cause UI glitches or crashes.</div>
           </div>
         </div>
 
@@ -1549,6 +1549,21 @@
       }
       btn.addEventListener('click', function(e) {
         e.stopPropagation();
+        // Prevent queueing MobileGestalt Patcher with no flags selected
+        if (cbId === 'tweakThreeapp' && !cb.checked) {
+          var mgMode = (document.getElementById('threeappMode') || {}).value || 'enable';
+          if (mgMode === 'enable') {
+            var mgCbIds = ['mgBootChime','mgChargeLimit','mgTapToWake','mgCollisionSOS','mgPencil','mgActionButton','mgAOD','mgStageManager','mgInternalInstall','mgSRD','mgShutter','mgiPadApps'];
+            var anyChecked = false;
+            for (var mi = 0; mi < mgCbIds.length; mi++) {
+              if ((document.getElementById(mgCbIds[mi]) || {}).checked) { anyChecked = true; break; }
+            }
+            if (!anyChecked) {
+              alert('Select at least one MobileGestalt flag first. Tap the row to open options.');
+              return;
+            }
+          }
+        }
         cb.checked = !cb.checked;
         cb.dispatchEvent(new Event('change'));
         syncBtn();
