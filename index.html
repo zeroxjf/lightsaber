@@ -580,17 +580,6 @@
     .log-line.ok { color: #0f7a3d; }
     .log-line.err { color: #c41e1e; }
     .log-line.device { color: var(--accent-dark); }
-    .log-line.freeze-hint {
-      opacity: 0;
-      max-height: 0;
-      padding: 0;
-      border-bottom: none;
-      overflow: hidden;
-      animation: freezeReveal 0.4s ease forwards;
-    }
-    @keyframes freezeReveal {
-      to { opacity: 1; max-height: 80px; padding: 5px 0; border-bottom: 1px solid var(--border-soft); }
-    }
     .btn-view-log {
       display: none;
       background: none;
@@ -1560,31 +1549,8 @@
       { match: 'RCE success',           stage: 'rce2',  name: 'Code execution achieved',         sub: 'Moving to next stage',                                 log: 'Code execution achieved' },
       { match: 'check_dlopen',          stage: 'dyld',  name: 'Loading system libraries',        sub: 'Patching dyld for library access',                     log: 'Loading system libraries...' },
       { match: 'sign_pointers',         stage: 'dyld',  name: 'Signing function pointers',       sub: 'Bypassing pointer authentication' },
-      { match: 'inside setup_fcall',    stage: 'fcall', name: 'Exploit chain running',            sub: 'Safari is about to freeze \u2014 this is a good sign', log: 'Safari will freeze soon \u2014 that means it\u2019s working.' },
+      { match: 'inside setup_fcall',    stage: 'fcall', name: 'Exploit chain running',            sub: 'Safari is about to freeze \u2014 this is a good sign', log: 'freeze' },
     ];
-
-    // After fcall setup, Safari's main thread freezes — no more JS runs.
-    // All guidance is written to the DOM synchronously and revealed via
-    // CSS animation-delay on the compositor thread.
-    var freezeMessages = [
-      { delay: 3,  text: 'Safari is frozen \u2014 that means it\u2019s working. Wait 30 more seconds, then check your home screen to see if changes took hold.' },
-      { delay: 35, text: 'Exploit should be complete. Force-quit Safari and check your home screen now. For MobileGestalt modifications and 3-app limit bypass, you will need to respring or reboot to see changes take hold.' },
-      { delay: 60, text: 'If the tweaks didn\u2019t apply, reboot your device before retrying \u2014 a reboot gives you a fresh kernel state and the cleanest chance of success.' },
-    ];
-
-    function writeFreezeHints() {
-      var body = document.getElementById('logSheetBody');
-      for (var i = 0; i < freezeMessages.length; i++) {
-        var line = document.createElement('div');
-        line.className = 'log-line freeze-hint device';
-        line.textContent = freezeMessages[i].text;
-        line.style.animationDelay = freezeMessages[i].delay + 's';
-        body.appendChild(line);
-      }
-      // Force layout flush so the browser commits the elements + their
-      // animation state before the main thread freezes.
-      void body.offsetHeight;
-    }
 
     function updateStage(text) {
       if (!text) return;
@@ -1602,11 +1568,16 @@
           if (dot) {
             dot.className = 'log-stage-dot' + (rule.stage === 'done' ? ' done' : '');
           }
-          if (rule.log) logAppend(rule.log, rule.stage === 'done' ? 'ok' : '');
-          // Once we hit fcall, Safari is about to freeze. Write all
-          // guidance to the DOM now with CSS animation-delay so the
-          // compositor reveals them even while JS is blocked.
-          if (rule.stage === 'fcall') writeFreezeHints();
+          if (rule.stage === 'fcall') {
+            // Safari is about to freeze — no more messages will show
+            // after this. Write all guidance now as static log lines.
+            logAppend('Safari will freeze soon \u2014 that means it\u2019s working.', '');
+            logAppend('Wait about 30 seconds, then check your home screen to see if changes took hold.', '');
+            logAppend('For MobileGestalt modifications and 3-app limit bypass, you will need to respring or reboot to see changes take effect.', '');
+            logAppend('If the tweaks didn\u2019t apply, reboot your device before retrying \u2014 a reboot gives you a fresh kernel state and the cleanest chance of success.', 'device');
+          } else if (rule.log) {
+            logAppend(rule.log, rule.stage === 'done' ? 'ok' : '');
+          }
           return;
         }
       }
