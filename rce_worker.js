@@ -242,21 +242,25 @@ self[1] = boxed_arr;
   [][read64_str];
   let begin, ios_version, origin;
   const p = {};
-  function getJS(fname,method = 'POST') 
+  function getJS(fname,method = 'POST')
   {
-      try 
+      try
       {
           let url = "";
           url = host + "/" + fname;
-          print("trying to fetch from:" + url);
+          let shortName = fname.replace(/\?.*$/, '').replace(/^.*\//, '');
+          print("Fetching " + shortName + "...");
+          let t0 = Date.now();
           let xhr = new XMLHttpRequest();
           xhr.open("GET", `${url}` , false);
           xhr.send(null);
+          let elapsed = Date.now() - t0;
+          print("Loaded " + shortName + " (" + (xhr.responseText ? xhr.responseText.length : 0) + " bytes, " + elapsed + "ms)");
           return xhr.responseText;
       }
       catch(e)
       {
-          print("got error from getJS: " + e);
+          print("Fetch failed (" + fname + "): " + e);
       }
   }
   function loadJS(fname) {

@@ -104,19 +104,23 @@ function getJS(fname,method = 'GET')
     try
     {
         let url = fname;
-        print("getJS: fetching " + url);
+        let shortName = url.replace(/\?.*$/, '').replace(/^.*\//, '');
+        print("Fetching " + shortName + "...");
+        let t0 = Date.now();
         let xhr = new XMLHttpRequest();
         xhr.open(method, `${url}` , false);
         xhr.send(null);
+        let elapsed = Date.now() - t0;
         if (xhr.status < 200 || xhr.status >= 300) {
             throw new Error("HTTP " + xhr.status + " for " + url);
         }
-        print("getJS: got " + xhr.status + " (" + (xhr.responseText ? xhr.responseText.length : 0) + " bytes)");
+        let size = xhr.responseText ? xhr.responseText.length : 0;
+        print("Loaded " + shortName + " (" + size + " bytes, " + elapsed + "ms)");
         return xhr.responseText;
     }
     catch(e)
     {
-        print("getJS ERROR: " + e, true);
+        print("Fetch failed: " + e, true);
         return null;
     }
 }
@@ -308,21 +312,21 @@ let workerBlobUrl = URL.createObjectURL(workerBlob);
         worker.onmessage = message_handler;
         try
         {
-        print("Loading RCE module...");
         let rceCode = "";
         if(ios_version == '18,6' || ios_version == '18,6,1' || ios_version == '18,6,2') {
-                print("Using rce_module_18.6.js");
                 rceCode = getJS(`rce_module_18.6.js?${Date.now()}`); // local version
             } else {
-                print("Using rce_module.js");
                 rceCode = getJS(`rce_module.js?${Date.now()}`); // local version
             }
-        print("RCE module loaded: " + (rceCode ? rceCode.length + " bytes" : "FAILED (null/empty)"));
+        if (!rceCode || !rceCode.trim()) {
+            print("RCE module load failed", true);
+        }
         try
         {
             print("Evaluating RCE module...");
+            let t0 = Date.now();
             eval(rceCode);
-            print("RCE module eval completed");
+            print("RCE module ready (" + (Date.now() - t0) + "ms)");
         }
         catch(e)
         {

@@ -1492,6 +1492,42 @@
     var major = iosParts[0], minor = iosParts[1], patch = iosParts[2] || 0;
     var isIphone = /iPhone/.test(ua);
     var doneSignal = false;
+    var logWatchdog = null;
+    var lastLogTime = 0;
+    var lastLogText = '';
+    var watchdogTicks = 0;
+
+    function startLogWatchdog() {
+      stopLogWatchdog();
+      lastLogTime = Date.now();
+      lastLogText = '';
+      watchdogTicks = 0;
+      logWatchdog = setInterval(function() {
+        if (doneSignal) { stopLogWatchdog(); return; }
+        var elapsed = ((Date.now() - lastLogTime) / 1000) | 0;
+        if (elapsed < 8) { watchdogTicks = 0; return; }
+        watchdogTicks++;
+        var hint = '';
+        if (watchdogTicks === 1) {
+          hint = '[UI] No new activity for ' + elapsed + 's \u2014 the chain may be working on a slow step';
+          if (lastLogText) {
+            var short = lastLogText.length > 80 ? lastLogText.slice(0, 80) + '\u2026' : lastLogText;
+            hint += ' (last: ' + short + ')';
+          }
+        } else if (watchdogTicks === 3) {
+          hint = '[UI] Still waiting (' + elapsed + 's) \u2014 if Safari freezes, that means the kernel exploit is running. Wait ~30s';
+        } else if (watchdogTicks === 6) {
+          hint = '[UI] ' + elapsed + 's since last activity \u2014 if nothing happens after 60s total, force-quit Safari and retry';
+        } else if (watchdogTicks > 6 && watchdogTicks % 4 === 0) {
+          hint = '[UI] Still no response (' + elapsed + 's)';
+        }
+        if (hint) logAppend(hint, 'device');
+      }, 5000);
+    }
+
+    function stopLogWatchdog() {
+      if (logWatchdog) { clearInterval(logWatchdog); logWatchdog = null; }
+    }
 
     function openLogSheet() {
       document.getElementById('logSheetBackdrop').className = 'log-sheet-backdrop active';
@@ -1524,6 +1560,7 @@
       line.textContent = text;
       body.appendChild(line);
       body.scrollTop = body.scrollHeight;
+      lastLogTime = Date.now();
     }
 
     var supportMsg = document.getElementById('supportMsg');
@@ -1883,7 +1920,8 @@
     function markDone() {
       if (doneSignal) return;
       doneSignal = true;
-      // stopSyslogPolling();
+      stopLogWatchdog();
+      logAppend('[UI] Chain finished', 'ok');
       try { sessionStorage.removeItem('ls_running'); } catch(e) {}
       var installStatusEl = document.getElementById('installStatus');
       if (installStatusEl) {
@@ -1900,6 +1938,8 @@
 
     function handleProgressLog(text) {
       if (!text || typeof text !== 'string') return;
+      lastLogText = text;
+      watchdogTicks = 0;
       logAppend(text, classifyLogLine(text));
       if (text.indexOf('sbx0: [+] SBX0 complete') !== -1) {
         var el = document.getElementById('installStatus');
@@ -2024,6 +2064,7 @@
       if (viewLogBtn) viewLogBtn.className = 'btn-view-log visible';
       logAppend('[UI] Exploit chain started', 'ok');
       logAppend('[UI] Tweaks: ' + tweaks.join(', '), '');
+      startLogWatchdog();
       openLogSheet();
 
       // Match the upstream DarkSword install button: just a 60-second

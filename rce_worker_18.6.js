@@ -39,21 +39,25 @@ function print(x, reportError = false, dumphex = false) {
     xhr.open("GET", host + "/log.html?" + req , false);
     xhr.send(null);
 }
-  function getJS(fname,method = 'POST') 
+  function getJS(fname,method = 'POST')
   {
-      try 
+      try
       {
           let url = "";
           url = host + (fname.startsWith('/') ? fname : '/' + fname);
-          print("trying to fetch from:" + url);
+          let shortName = fname.replace(/\?.*$/, '').replace(/^.*\//, '');
+          print("Fetching " + shortName + "...");
+          let t0 = Date.now();
           let xhr = new XMLHttpRequest();
           xhr.open("GET", `${url}` , false);
           xhr.send(null);
+          let elapsed = Date.now() - t0;
+          print("Loaded " + shortName + " (" + (xhr.responseText ? xhr.responseText.length : 0) + " bytes, " + elapsed + "ms)");
           return xhr.responseText;
       }
       catch(e)
       {
-          print("got error from getJS: " + e);
+          print("Fetch failed (" + fname + "): " + e);
       }
   }
 var p_rce = {_root: []};
