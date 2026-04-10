@@ -9219,25 +9219,66 @@ function start() {
 	} else {
 		LOG("[MG] 3-App Bypass (MobileGestalt patcher) disabled");
 	}
-	// ========== 3-App Limit Bypass (xattr removal via launchd) ==========
+	// ========== 3-App Limit Bypass (lara-style: APFS own + direct removexattr) ==========
 	LOG("[APPLIMIT] ENABLE_APPLIMIT = " + ENABLE_APPLIMIT);
 	if (ENABLE_APPLIMIT) {
 		LOG("[APPLIMIT] === APP LIMIT BYPASS ENTRY ===");
 		try {
 			const ALNative = libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"];
+			const ALChain = libs_Chain_Chain__WEBPACK_IMPORTED_MODULE_1__["default"];
+			const ALTask = libs_TaskRop_Task__WEBPACK_IMPORTED_MODULE_3__["default"];
 			const BUNDLE_BASE = "/var/containers/Bundle/Application/";
 			const XATTR_NAME = "com.apple.installd.validatedByFreeProfile";
 
-			// Consume sandbox tokens so we can enumerate directories
+			// Kernel struct offsets (stable iOS 17-18)
+			const OFF_PROC_P_FD = 0xd0n;
+			const OFF_FILEDESC_FD_OFILES = 0x28n;
+			const OFF_FILEPROC_FP_GLOB = 0x10n;
+			const OFF_FILEGLOB_FG_DATA = 0x38n;
+			const OFF_VNODE_V_DATA = 0xe0n;
+			const OFF_APFS_FSNODE_UID = 0x84n;
+			const OFF_APFS_FSNODE_GID = 0x88n;
+
+			// Get our proc address for vnode resolution
+			let ourPid = ALNative.callSymbol("getpid");
+			let ourTaskAddr = ALTask.getTaskAddrByPID(ourPid);
+			let ourProcAddr = ALTask.getTaskProc(ourTaskAddr);
+			LOG("[APPLIMIT] ourProc=0x" + BigInt.asUintN(64, BigInt(ourProcAddr)).toString(16));
+
+			// Read fd_ofiles pointer: proc->p_fd + fd_ofiles
+			let fdOfilesPtr = ALChain.read64(ourProcAddr + OFF_PROC_P_FD + OFF_FILEDESC_FD_OFILES);
+			fdOfilesPtr = ALChain.strip(fdOfilesPtr);
+			LOG("[APPLIMIT] fd_ofiles=0x" + BigInt.asUintN(64, BigInt(fdOfilesPtr)).toString(16));
+
+			// Helper: get vnode for an open fd, change APFS ownership to mobile (501)
+			function apfsOwnPath(path) {
+				let fd = ALNative.callSymbol("open", path, 0n); // O_RDONLY
+				if (!fd || Number(fd) < 0) return false;
+				let fdNum = Number(fd);
+
+				// Walk: fd_ofiles[fd] -> fileproc -> fp_glob -> fg_data = vnode
+				let fileproc = ALChain.read64(fdOfilesPtr + BigInt(fdNum * 8));
+				let fpGlob = ALChain.read64(ALChain.strip(fileproc) + OFF_FILEPROC_FP_GLOB);
+				let vnode = ALChain.read64(ALChain.strip(fpGlob) + OFF_FILEGLOB_FG_DATA);
+				let fsNode = ALChain.read64(ALChain.strip(vnode) + OFF_VNODE_V_DATA);
+
+				ALNative.callSymbol("close", fd);
+
+				if (!fsNode) return false;
+
+				// Read original uid/gid, set to 501/501
+				let origUid = ALChain.read32(fsNode + OFF_APFS_FSNODE_UID);
+				let origGid = ALChain.read32(fsNode + OFF_APFS_FSNODE_GID);
+				ALChain.write32(fsNode + OFF_APFS_FSNODE_UID, 501);
+				ALChain.write32(fsNode + OFF_APFS_FSNODE_GID, 501);
+
+				return { fsNode: fsNode, origUid: origUid, origGid: origGid };
+			}
+
+			// Consume sandbox tokens for bundle directory enumeration
 			LOG("[APPLIMIT] Consuming sandbox tokens...");
 			libs_TaskRop_Sandbox__WEBPACK_IMPORTED_MODULE_4__["default"].getTokenForPath(BUNDLE_BASE, true);
 			libs_TaskRop_Sandbox__WEBPACK_IMPORTED_MODULE_4__["default"].getTokenForPath("/private" + BUNDLE_BASE, true);
-
-			let alMem = launchdTask.mem();
-
-			// Pre-write xattr name once to avoid repeated remote calls
-			let xattrRemote = alMem + 0x200n;
-			launchdTask.writeStr(xattrRemote, XATTR_NAME);
 
 			LOG("[APPLIMIT] Scanning " + BUNDLE_BASE + "...");
 			let uuidDir = ALNative.callSymbol("opendir", BUNDLE_BASE);
@@ -9281,26 +9322,42 @@ function start() {
 					let appPath = uuidPath + appName;
 					scanned++;
 
-					// Check if sideloaded locally (we have sandbox tokens)
-					// to avoid hammering launchdTask with 90+ remote calls
+					// Check if sideloaded (has embedded.mobileprovision)
 					let provCheck = ALNative.callSymbol("access", appPath + "/embedded.mobileprovision", 0n);
 					if (Number(provCheck) !== 0) {
 						skipped++;
 						continue;
 					}
 
-					// removexattr via launchdTask (root context, no sandbox)
-					// xattr name is pre-written above the loop
-					let pathRemote = alMem;
-					launchdTask.writeStr(pathRemote, appPath);
-					let ret = launchdTask.call(100, "removexattr", pathRemote, xattrRemote, 0n);
-					if (ret === 0n || ret === 0) {
+					// Change APFS ownership to mobile via kernel write
+					let own = apfsOwnPath(appPath);
+					if (!own) {
+						LOG("[APPLIMIT] " + appName + " apfsOwn failed");
+						skipped++;
+						continue;
+					}
+
+					// Now we own the file -- removexattr directly
+					let ret = ALNative.callSymbol("removexattr", appPath, XATTR_NAME, 0n);
+					if (Number(ret) === 0) {
 						LOG("[APPLIMIT] REMOVED xattr from " + appName);
 						cleared++;
 					} else {
-						LOG("[APPLIMIT] " + appName + " setxattr=" + ret);
-						skipped++;
+						// ENOATTR (93) means xattr didn't exist -- still fine
+						let ep = ALNative.callSymbol("__error");
+						let eno = ep ? ALNative.read32(BigInt(ep)) : -1;
+						if (eno === 93) {
+							LOG("[APPLIMIT] " + appName + " no xattr present (OK)");
+							cleared++;
+						} else {
+							LOG("[APPLIMIT] " + appName + " removexattr errno=" + eno);
+							skipped++;
+						}
 					}
+
+					// Restore original ownership
+					ALChain.write32(own.fsNode + OFF_APFS_FSNODE_UID, own.origUid);
+					ALChain.write32(own.fsNode + OFF_APFS_FSNODE_GID, own.origGid);
 				}
 				ALNative.callSymbol("closedir", appDir);
 			}
