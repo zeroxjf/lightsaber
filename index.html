@@ -733,6 +733,33 @@
       box-shadow: var(--shadow-row);
       transform: translateY(-1px);
     }
+    .tweak-row.is-disabled {
+      background: #f3f4f6;
+      border-color: #e5e7eb;
+      box-shadow: none;
+      filter: grayscale(0.85);
+    }
+    .tweak-row.is-disabled .tweak-row-name,
+    .tweak-row.is-disabled .tweak-row-desc,
+    .tweak-row.is-disabled .tweak-row-notes {
+      color: #9ca3af;
+    }
+    .tweak-row.is-disabled .tweak-row-name {
+      text-decoration: line-through;
+      text-decoration-color: #cbd1d8;
+    }
+    .tweak-row.is-disabled .tweak-row-hint {
+      color: #b5bac3;
+    }
+    .tweak-row.is-disabled .tweak-queue-btn {
+      background: #d1d5db;
+      color: #6b7280;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+    .tweak-row.is-disabled .tweak-row-info {
+      opacity: 0.6;
+    }
     /* Tweak detail sheet - slides in from right like Sileo */
     .tweak-sheet-backdrop {
       display: none;
@@ -1362,12 +1389,12 @@
         </div>
 
         <div class="tweak-section-label">Unstable</div>
-        <div class="tweak-row" id="tweakRowApplimit">
+        <div class="tweak-row is-disabled" id="tweakRowApplimit">
           <div class="tweak-row-head">
             <span class="tweak-row-name">3-App Limit Bypass <span class="tweak-row-badge" style="color:#7f1d1d;background:#fee2e2;border-color:#f87171">unstable</span><span class="tweak-row-hint">tap for info</span></span>
             <button type="button" class="tweak-row-info" aria-label="3-App Limit Bypass details" data-sheet="tweakRowApplimit">i</button>
             <input type="checkbox" id="tweakApplimit" class="tweak-toggle" disabled>
-            <button type="button" class="tweak-queue-btn" data-cb="tweakApplimit" disabled style="opacity:0.5;cursor:not-allowed">DISABLED</button>
+            <button type="button" class="tweak-queue-btn" data-cb="tweakApplimit" disabled>DISABLED</button>
           </div>
           <div class="tweak-row-detail" id="tweakDetailApplimit" hidden>
             <div class="tweak-row-desc">Disabled &mdash; this bypass proved too unstable on top of the LightSaber chain. Use <a href="https://github.com/rooootdev/lara" target="_blank" rel="noopener">Lara</a> instead &mdash; it's a WIP app that takes advantage of the kernel exploit with a proper reimplementation.</div>
@@ -1427,7 +1454,7 @@
       <a href="https://twitter.com/cro4js" target="_blank" rel="noopener">@cro4js</a> &mdash; UI suggestions
     </div>
 
-    <p class="version">v0.0.96</p>
+    <p class="version">v0.0.97</p>
   </div>
 
   <div class="tweak-sheet-backdrop" id="tweakSheetBackdrop"></div>
