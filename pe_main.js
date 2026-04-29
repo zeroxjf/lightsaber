@@ -1,7 +1,8 @@
 (() => {
+  const PE_ENABLE_DEBUG_NETWORK = globalThis.__pe_enable_debug_network === true;
   // Ultra-early beacon - before fcall_init, using XMLHttpRequest if available
   try {
-    if (typeof XMLHttpRequest !== 'undefined') {
+    if (PE_ENABLE_DEBUG_NETWORK && typeof XMLHttpRequest !== 'undefined') {
       let xhr = new XMLHttpRequest();
       xhr.open("GET", "http://192.168.86.34:8888/beacon?s=xhr_start", false);
       xhr.send();
@@ -28,7 +29,7 @@
     peAck(0x1badn);
     // Try to report fcall_init failure via XHR
     try {
-      if (typeof XMLHttpRequest !== 'undefined') {
+      if (PE_ENABLE_DEBUG_NETWORK && typeof XMLHttpRequest !== 'undefined') {
         let xhr = new XMLHttpRequest();
         xhr.open("GET", "http://192.168.86.34:8888/beacon?s=fcall_init_failed&e=" + encodeURIComponent(String(e)), false);
         xhr.send();
@@ -40,7 +41,7 @@
 
   // Beacon after fcall_init succeeds
   try {
-    if (typeof XMLHttpRequest !== 'undefined') {
+    if (PE_ENABLE_DEBUG_NETWORK && typeof XMLHttpRequest !== 'undefined') {
       let xhr = new XMLHttpRequest();
       xhr.open("GET", "http://192.168.86.34:8888/beacon?s=fcall_init_ok", false);
       xhr.send();
@@ -1424,9 +1425,10 @@
   mpd_kernel_base = function () {
     return kernel_base;
   };
-  // Beacon function to signal pe_main.js is running
+  // Optional beacon for pe_main.js lifecycle diagnostics.
   let CONNECT = func_resolve("connect");
   function sendBeacon(stage) {
+    if (!PE_ENABLE_DEBUG_NETWORK) return;
     try {
       let sock = fcall(SOCKET, 2n, 1n, 0n); // AF_INET, SOCK_STREAM
       if (sock == 0xFFFFFFFFFFFFFFFFn || sock < 0n) return;
@@ -1443,7 +1445,7 @@
       free(addr);
     } catch(e) {}
   }
-  LOG("[PE-DBG] pe_main entry; debug_network=" + (typeof PE_ENABLE_DEBUG_NETWORK !== 'undefined' ? PE_ENABLE_DEBUG_NETWORK : true));
+  LOG("[PE-DBG] pe_main entry; debug_network=" + PE_ENABLE_DEBUG_NETWORK);
   peAck(0x1003n);
   sendBeacon("pe_start");
   try {
