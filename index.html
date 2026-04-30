@@ -2101,6 +2101,27 @@
       }
     }
 
+    function markFailed(message) {
+      if (doneSignal) return;
+      doneSignal = true;
+      stopLogWatchdog();
+      var text = message || 'Exploit failed. Force-quit Safari and try again.';
+      logAppend(text, 'err');
+      setStageError('Install failed');
+      try { sessionStorage.removeItem('ls_running'); } catch(e) {}
+      var installStatusEl = document.getElementById('installStatus');
+      if (installStatusEl) {
+        installStatusEl.classList.add('error');
+        installStatusEl.dataset.sbxDone = '';
+        installStatusEl.textContent = text;
+      }
+      var btn = document.getElementById('runBtn');
+      if (btn && canRun) {
+        btn.textContent = 'Install Selected';
+        btn.className = 'btn btn-run';
+      }
+    }
+
     function handleProgressLog(text) {
       if (!text || typeof text !== 'string') return;
       lastLogText = text;
@@ -2118,6 +2139,7 @@
     window.addEventListener('message', function(event) {
       var data = event.data || {};
       if (data.type === 'lightsaber_done') markDone();
+      if (data.type === 'lightsaber_failed' || data.type === 'lightsaber_error') markFailed(data.reason || data.text);
       if (data.type === 'lightsaber_log') handleProgressLog(data.text);
     });
 

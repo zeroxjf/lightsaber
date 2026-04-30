@@ -10274,6 +10274,10 @@ async function main() {
                 print("Failed rce, retry " + (attempt + 1) + "/" + maxRetries);
               }
               print("All retries exhausted");
+              self.postMessage({
+                type: 'stage1_failed',
+                error: 'All stage1_rce retries exhausted'
+              });
             })();
             break;
         }

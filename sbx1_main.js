@@ -6972,10 +6972,12 @@
     idx += 0x1n;
     LOG("Executing pe_main.js...");
     mpd_evaluateScript_nowait_exit(ctx, pe_main_cfstring);
+    const PE_ACK_TIMEOUT_MS = 3000;
+    const PE_ACK_TEARDOWN_CUSHION_US = 500000n;
     LOG("[MPD] pe_main.js scheduled; waiting for PE ack");
     let pe_ack = 0n;
     let pe_ack_start = Date.now();
-    while (Date.now() - pe_ack_start < 1000) {
+    while (Date.now() - pe_ack_start < PE_ACK_TIMEOUT_MS) {
       pe_ack = uread64(pe_ack_local);
       if (pe_ack == 0x1003n || pe_ack == 0x1badn) {
         break;
@@ -6988,10 +6990,10 @@
       if (pe_ack != 0n) {
         LOG(`[MPD] PE partial ack before timeout: ${pe_ack.hex()}`);
       } else {
-        LOG("[MPD] PE ack timeout after 1000ms");
+        LOG(`[MPD] PE ack timeout after ${PE_ACK_TIMEOUT_MS}ms`);
       }
       LOG("[MPD] holding bridge for teardown cushion");
-      usleep(250000n);
+      usleep(PE_ACK_TEARDOWN_CUSHION_US);
     }
     LOG("[MPD] pe spawned");
   }
