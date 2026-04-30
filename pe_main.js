@@ -8494,7 +8494,8 @@ const POWERCUFF_TWEAK_LABEL = "Powercuff";
 const ENABLE_MGPATCHER = !!globalThis.__ls_enable_mgpatcher;
 const MG_FLAGS = (typeof globalThis.__mg_flags === 'string') ? globalThis.__mg_flags : '';
 const MG_UNFLAGS = (typeof globalThis.__mg_unflags === 'string') ? globalThis.__mg_unflags : '';
-const ENABLE_APPLIMIT = !!globalThis.__ls_enable_applimit;
+const ENABLE_APPLIMIT_REQUESTED = !!globalThis.__ls_enable_applimit;
+const ENABLE_APPLIMIT = false;
 // sbcustomizer_light.js dispatches to the SpringBoard main thread
 // asynchronously. When it runs without Powercuff piggybacking on it, keep the
 // chain alive briefly so the dispatched main-thread work has time to run
@@ -9303,14 +9304,17 @@ function start() {
 		LOG("[MG] MobileGestalt patcher disabled");
 	}
 	// ========== 3-App Limit Bypass (APFS own + direct removexattr) ==========
-	LOG("[THREEAPP] ENABLE_APPLIMIT = " + ENABLE_APPLIMIT);
+	LOG("[THREEAPP] ENABLE_APPLIMIT = " + ENABLE_APPLIMIT + " requested=" + ENABLE_APPLIMIT_REQUESTED);
 	if (ENABLE_APPLIMIT) {
 		LOG("[THREEAPP] === APP LIMIT BYPASS ENTRY ===");
 		try {
 			const ALNative = libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"];
 			const ALChain = libs_Chain_Chain__WEBPACK_IMPORTED_MODULE_1__["default"];
 			const ALTask = libs_TaskRop_Task__WEBPACK_IMPORTED_MODULE_3__["default"];
-			const BUNDLE_BASE = "/var/containers/Bundle/Application/";
+			const BUNDLE_ROOTS = [
+				"/private/var/containers/Bundle/Application/",
+				"/var/containers/Bundle/Application/"
+			];
 			const XATTR_NAME = "com.apple.installd.validatedByFreeProfile";
 
 			// Kernel struct offsets used to resolve an opened app bundle's vnode.
@@ -9319,12 +9323,21 @@ function start() {
 			const OFF_FILEPROC_FP_GLOB = 0x10n;
 			const OFF_FILEGLOB_FG_DATA = 0x38n;
 			const OFF_VNODE_V_DATA = 0xe0n;
-			const OFF_APFS_FSNODE_UID = 0x84n;
-			const OFF_APFS_FSNODE_GID = 0x88n;
+			const OFF_APFS_FSNODE_UID = 0x80n;
+			const OFF_APFS_FSNODE_GID = 0x84n;
+			const OFF_APFS_FSNODE_MODE = 0x88n;
+			const IMPACTOR_REPAIR_UID = 33;
+			const IMPACTOR_REPAIR_GID = 33;
+			const NORMAL_APP_DIR_MODE = 0x41ed;
+			const MOBILE_APFS_MODE = 0x1f5;
+			const BROAD_REPAIR_MODE = 0x41f5;
+			const OFF_STAT_MODE = 0x4n;
 			const OFF_STAT_UID = 0x10n;
 			const OFF_STAT_GID = 0x14n;
 			const KERNEL_OBJECT_MIN = 0xffffffd000000000n;
 			const KERNEL_OBJECT_MAX = 0xfffffff000000000n;
+			const KCF_STRING_ENCODING_UTF8 = 0x08000100n;
+			const KCF_URL_POSIX_PATH_STYLE = 0n;
 
 			let ourPid = ALNative.callSymbol("getpid");
 			let ourTaskAddr = ALTask.getTaskAddrByPID(ourPid);
@@ -9339,6 +9352,10 @@ function start() {
 
 			function hex64(value) {
 				return "0x" + BigInt.asUintN(64, BigInt(value || 0n)).toString(16);
+			}
+
+			function hex16(value) {
+				return "0x" + Number(value || 0).toString(16);
 			}
 
 			function getErrno() {
@@ -9379,6 +9396,7 @@ function start() {
 					}
 					let statPtr = BigInt(statBuf);
 					return {
+						mode: ALNative.read16(statPtr + OFF_STAT_MODE),
 						uid: ALNative.read32(statPtr + OFF_STAT_UID),
 						gid: ALNative.read32(statPtr + OFF_STAT_GID)
 					};
@@ -9395,166 +9413,322 @@ function start() {
 				return { present: null, size: -1, errno: eno };
 			}
 
-			function apfsOwnPath(path) {
+			function cfStringToJS(ref) {
+				if (!ref || ref === 0n) return "";
+				let buf = ALNative.callSymbol("malloc", 512n);
+				if (!buf || buf === 0n) return "";
+				try {
+					let ok = ALNative.callSymbol("CFStringGetCString", ref, buf, 512n, KCF_STRING_ENCODING_UTF8);
+					if (!ok) return "";
+					return ALNative.readString(BigInt(buf), 512).replace(/\0/g, "").trim();
+				} finally {
+					ALNative.callSymbol("free", buf);
+				}
+			}
+
+			function cfStringCreate(value) {
+				let ref = ALNative.callSymbol("CFStringCreateWithCString", 0n, value, KCF_STRING_ENCODING_UTF8);
+				return ref || 0n;
+			}
+
+			function bundleMetadataForApp(appPath) {
+				let meta = { id: "", display: "", name: "", executable: "", source: "none" };
+				let pathRef = cfStringCreate(appPath);
+				if (!pathRef) return meta;
+				let urlRef = 0n;
+				let bundleRef = 0n;
+				let infoDictRef = 0n;
+				try {
+					urlRef = ALNative.callSymbol("CFURLCreateWithFileSystemPath", 0n, pathRef, KCF_URL_POSIX_PATH_STYLE, 1n);
+					if (!urlRef) return meta;
+					bundleRef = ALNative.callSymbol("CFBundleCreate", 0n, urlRef);
+					if (bundleRef) {
+						meta.id = cfStringToJS(ALNative.callSymbol("CFBundleGetIdentifier", bundleRef));
+						meta.display = bundleInfoString(bundleRef, "CFBundleDisplayName");
+						meta.name = bundleInfoString(bundleRef, "CFBundleName");
+						meta.executable = bundleInfoString(bundleRef, "CFBundleExecutable");
+						if (meta.id || meta.display || meta.name || meta.executable) meta.source = "bundle";
+					}
+
+					if (meta.source === "none") {
+						infoDictRef = ALNative.callSymbol("CFBundleCopyInfoDictionaryInDirectory", urlRef);
+						if (infoDictRef) {
+							meta.id = dictInfoString(infoDictRef, "CFBundleIdentifier");
+							meta.display = dictInfoString(infoDictRef, "CFBundleDisplayName");
+							meta.name = dictInfoString(infoDictRef, "CFBundleName");
+							meta.executable = dictInfoString(infoDictRef, "CFBundleExecutable");
+							if (meta.id || meta.display || meta.name || meta.executable) meta.source = "infoDict";
+						}
+					}
+				} catch (metaErr) {
+					LOG("[THREEAPP-AUDIT] bundle metadata failed path=" + appPath + " err=" + String(metaErr));
+				} finally {
+					if (infoDictRef) ALNative.callSymbol("CFRelease", infoDictRef);
+					if (bundleRef) ALNative.callSymbol("CFRelease", bundleRef);
+					if (urlRef) ALNative.callSymbol("CFRelease", urlRef);
+					ALNative.callSymbol("CFRelease", pathRef);
+				}
+				return meta;
+			}
+
+			function bundleInfoString(bundleRef, keyName) {
+				let key = cfStringCreate(keyName);
+				if (!key) return "";
+				try {
+					return cfStringToJS(ALNative.callSymbol("CFBundleGetValueForInfoDictionaryKey", bundleRef, key));
+				} finally {
+					ALNative.callSymbol("CFRelease", key);
+				}
+			}
+
+			function dictInfoString(dictRef, keyName) {
+				let key = cfStringCreate(keyName);
+				if (!key) return "";
+				try {
+					return cfStringToJS(ALNative.callSymbol("CFDictionaryGetValue", dictRef, key));
+				} finally {
+					ALNative.callSymbol("CFRelease", key);
+				}
+			}
+
+			function bundleHintForApp(appName, meta) {
+				let hay = (appName + " " + meta.id + " " + meta.display + " " + meta.name + " " + meta.executable).toLowerCase();
+				let hints = [];
+				function addHint(h) {
+					if (hints.indexOf(h) === -1) hints.push(h);
+				}
+				if (hay.indexOf("ytlite") !== -1) addHint("ytlite");
+				if (hay.indexOf("youtube") !== -1 || hay.indexOf("com.google.ios.youtube") !== -1 || hay.indexOf("google.ios.youtube") !== -1) addHint("youtube");
+				if (hay.indexOf("uyou") !== -1) addHint("uyou");
+				if (hay.indexOf("youtubeplus") !== -1 || hay.indexOf("ytplus") !== -1) addHint("ytplus");
+				return hints.length ? hints.join(",") : "none";
+			}
+
+			function repairTargetForApp(appName, oldUid, oldGid, oldMode) {
+				if ((oldUid === IMPACTOR_REPAIR_UID && oldGid !== IMPACTOR_REPAIR_GID) ||
+					(oldGid === IMPACTOR_REPAIR_GID && oldUid !== IMPACTOR_REPAIR_UID)) {
+					return { uid: IMPACTOR_REPAIR_UID, gid: IMPACTOR_REPAIR_GID, mode: NORMAL_APP_DIR_MODE, reason: appName + " mixed Impactor owner repair" };
+				}
+				if (oldUid === IMPACTOR_REPAIR_UID && oldGid === IMPACTOR_REPAIR_GID && oldMode === BROAD_REPAIR_MODE) {
+					return { uid: IMPACTOR_REPAIR_UID, gid: IMPACTOR_REPAIR_GID, mode: NORMAL_APP_DIR_MODE, reason: appName + " undo broad Impactor mode repair" };
+				}
+				if (oldUid === 501 && oldGid === 501 && (oldMode === BROAD_REPAIR_MODE || oldMode === 0xc1f5)) {
+					return { uid: 501, gid: 501, mode: MOBILE_APFS_MODE, reason: appName + " undo broad mobile mode repair" };
+				}
+				if (oldUid !== oldGid && (oldUid === 501 || oldGid === 501)) {
+					return { uid: 501, gid: 501, mode: oldMode, reason: appName + " mixed mobile owner repair" };
+				}
+				return null;
+			}
+
+			function restoreTargetForApp(appName, oldUid, oldGid, oldMode) {
+				let target = repairTargetForApp(appName, oldUid, oldGid, oldMode);
+				if (target) return target;
+				if (oldUid !== 501 || oldGid !== 501) {
+					return { uid: oldUid, gid: oldGid, mode: oldMode, reason: "preserve original owner/mode" };
+				}
+				return null;
+			}
+
+			function restoreApfsState(own, path) {
+				if (!own || !own.restore) return;
+				let target = own.restore;
+				ALChain.write32(own.fsNode + OFF_APFS_FSNODE_UID, target.uid);
+				ALChain.write32(own.fsNode + OFF_APFS_FSNODE_GID, target.gid);
+				ALChain.write16(own.fsNode + OFF_APFS_FSNODE_MODE, target.mode);
+				syncApfs();
+				let st = statOwner(path);
+				LOG("[THREEAPP] restored owner/mode uid=" + (st ? st.uid : -1) + " gid=" + (st ? st.gid : -1) + " mode=" + (st ? hex16(st.mode) : "n/a") + " reason=" + target.reason + " path=" + path);
+			}
+
+			function getApfsInfo(path) {
 				let fd = ALNative.callSymbol("open", path, 0n); // O_RDONLY
 				if (Number(fd) < 0) {
 					LOG("[THREEAPP] open failed errno=" + getErrno() + " path=" + path);
-					return false;
+					return null;
 				}
 				let fdNum = Number(fd);
 				try {
-					let fileproc = checkedKernelPtr(ALChain.read64(fdOfilesPtr + BigInt(fdNum) * 8n), "fileproc");
-					if (!fileproc) return false;
+					let fileproc = ALChain.read64(fdOfilesPtr + BigInt(fdNum) * 8n);
+					if (!fileproc) return null;
 					let fpGlob = checkedKernelPtr(ALChain.read64(fileproc + OFF_FILEPROC_FP_GLOB), "fp_glob");
-					if (!fpGlob) return false;
+					if (!fpGlob) return null;
 					let vnode = checkedKernelPtr(ALChain.read64(fpGlob + OFF_FILEGLOB_FG_DATA), "vnode");
-					if (!vnode) return false;
-					let fsNode = checkedKernelPtr(ALChain.read64(vnode + OFF_VNODE_V_DATA), "fsnode");
-					if (!fsNode) return false;
+					if (!vnode) return null;
+					let fsNode = ALChain.read64(vnode + OFF_VNODE_V_DATA);
+					if (!fsNode) return null;
 
-					let origUid = ALChain.read32(fsNode + OFF_APFS_FSNODE_UID);
-					let origGid = ALChain.read32(fsNode + OFF_APFS_FSNODE_GID);
-					if (origUid > 65535 || origGid > 65535) {
-						LOG("[THREEAPP] implausible owner uid=" + origUid + " gid=" + origGid + " fsnode=" + hex64(fsNode));
-						return false;
-					}
-
-					ALChain.write32(fsNode + OFF_APFS_FSNODE_UID, 501);
-					ALChain.write32(fsNode + OFF_APFS_FSNODE_GID, 501);
-
-					let checkUid = ALChain.read32(fsNode + OFF_APFS_FSNODE_UID);
-					let checkGid = ALChain.read32(fsNode + OFF_APFS_FSNODE_GID);
-					if (checkUid !== 501 || checkGid !== 501) {
-						LOG("[THREEAPP] owner write verify failed uid=" + checkUid + " gid=" + checkGid);
-						ALChain.write32(fsNode + OFF_APFS_FSNODE_UID, origUid);
-						ALChain.write32(fsNode + OFF_APFS_FSNODE_GID, origGid);
-						syncApfs();
-						return false;
-					}
-
-					syncApfs();
-					let st = statOwner(path);
-					if (!st || st.uid !== 501 || st.gid !== 501) {
-						LOG("[THREEAPP] stat owner verify failed uid=" + (st ? st.uid : -1) + " gid=" + (st ? st.gid : -1));
-						ALChain.write32(fsNode + OFF_APFS_FSNODE_UID, origUid);
-						ALChain.write32(fsNode + OFF_APFS_FSNODE_GID, origGid);
-						syncApfs();
-						return false;
-					}
-
-					return { fsNode: fsNode, origUid: origUid, origGid: origGid };
+					return {
+						fsNode: fsNode,
+						uid: ALChain.read32(fsNode + OFF_APFS_FSNODE_UID),
+						gid: ALChain.read32(fsNode + OFF_APFS_FSNODE_GID),
+						mode: ALChain.read16(fsNode + OFF_APFS_FSNODE_MODE)
+					};
 				} finally {
 					ALNative.callSymbol("close", fd);
 				}
 			}
 
-			function restoreOwner(own) {
-				if (!own) return;
-				ALChain.write32(own.fsNode + OFF_APFS_FSNODE_UID, own.origUid);
-				ALChain.write32(own.fsNode + OFF_APFS_FSNODE_GID, own.origGid);
+			function repairApfsStateOnly(path, appName, info) {
+				if (!info) info = getApfsInfo(path);
+				if (!info) return false;
+				let target = repairTargetForApp(appName, info.uid, info.gid, info.mode);
+				if (!target) return false;
+				ALChain.write32(info.fsNode + OFF_APFS_FSNODE_UID, target.uid);
+				ALChain.write32(info.fsNode + OFF_APFS_FSNODE_GID, target.gid);
+				ALChain.write16(info.fsNode + OFF_APFS_FSNODE_MODE, target.mode);
 				syncApfs();
+				let st = statOwner(path);
+				LOG("[THREEAPP-AUDIT] repair-only owner/mode uid=" + (st ? st.uid : -1) + " gid=" + (st ? st.gid : -1) + " mode=" + (st ? hex16(st.mode) : "n/a") + " reason=" + target.reason + " path=" + path);
+				return !!st && st.uid === target.uid && st.gid === target.gid && st.mode === target.mode;
+			}
+
+			function apfsOwnPath(path, appName) {
+				let info = getApfsInfo(path);
+				if (!info) return false;
+
+				let fsNode = info.fsNode;
+				let oldUid = info.uid;
+				let oldGid = info.gid;
+				let oldMode = info.mode;
+				LOG("[THREEAPP] current fsnode owner uid=" + oldUid + " gid=" + oldGid + " mode=" + hex16(oldMode) + " path=" + path);
+				let restore = restoreTargetForApp(appName, oldUid, oldGid, oldMode);
+
+				ALChain.write32(fsNode + OFF_APFS_FSNODE_UID, 501);
+				ALChain.write32(fsNode + OFF_APFS_FSNODE_GID, 501);
+
+				syncApfs();
+				let st = statOwner(path);
+				if (!st || st.uid !== 501 || st.gid !== 501) {
+					LOG("[THREEAPP] stat owner verify failed uid=" + (st ? st.uid : -1) + " gid=" + (st ? st.gid : -1));
+					return false;
+				}
+				if ((st.mode & 0xf000) !== 0x4000) {
+					LOG("[THREEAPP] stat mode verify failed mode=" + hex16(st.mode));
+					return false;
+				}
+
+				return { fsNode: fsNode, restore: restore };
 			}
 
 			LOG("[THREEAPP] Consuming sandbox tokens...");
-			libs_TaskRop_Sandbox__WEBPACK_IMPORTED_MODULE_4__["default"].getTokenForPath(BUNDLE_BASE, true);
-			libs_TaskRop_Sandbox__WEBPACK_IMPORTED_MODULE_4__["default"].getTokenForPath("/private" + BUNDLE_BASE, true);
-
-			LOG("[THREEAPP] Scanning " + BUNDLE_BASE + "...");
-			let uuidDir = ALNative.callSymbol("opendir", BUNDLE_BASE);
-			if (!uuidDir) throw "opendir failed for " + BUNDLE_BASE;
+			for (let root of BUNDLE_ROOTS) {
+				libs_TaskRop_Sandbox__WEBPACK_IMPORTED_MODULE_4__["default"].getTokenForPath(root, true);
+			}
 
 			let cleared = 0;
+			let repaired = 0;
+			let audited = 0;
 			let skipped = 0;
 			let scanned = 0;
+			let seen = {};
 
-			while (true) {
-				let entPtr = ALNative.callSymbol("readdir", uuidDir);
-				if (!entPtr) break;
-
-				let entBuf = ALNative.read(entPtr, 24);
-				let entView = new DataView(entBuf);
-				let d_namlen = entView.getUint16(18, true);
-				let d_type = entView.getUint8(20);
-				let d_name = ALNative.readString(entPtr + 21n, d_namlen + 1);
-
-				if (d_type !== 4) continue;
-				if (d_name.startsWith(".")) continue;
-
-				let uuidPath = BUNDLE_BASE + d_name + "/";
-				let appDir = ALNative.callSymbol("opendir", uuidPath);
-				if (!appDir) continue;
-
-				while (true) {
-					let appEntPtr = ALNative.callSymbol("readdir", appDir);
-					if (!appEntPtr) break;
-
-					let appEntBuf = ALNative.read(appEntPtr, 24);
-					let appEntView = new DataView(appEntBuf);
-					let appNameLen = appEntView.getUint16(18, true);
-					let appType = appEntView.getUint8(20);
-					let appName = ALNative.readString(appEntPtr + 21n, appNameLen + 1);
-
-					if (appType !== 4) continue;
-					if (!appName.endsWith(".app")) continue;
-
-					let appPath = uuidPath + appName;
-					scanned++;
-
-					let provCheck = ALNative.callSymbol("access", appPath + "/embedded.mobileprovision", 0n);
-					if (Number(provCheck) !== 0) {
-						skipped++;
-						continue;
-					}
-
-					let before = xattrState(appPath);
-					if (before.present === false) {
-						LOG("[THREEAPP] " + appName + " already bypassed (xattr missing)");
-						cleared++;
-						continue;
-					}
-					if (before.present === true) {
-						LOG("[THREEAPP] " + appName + " xattr present size=" + before.size);
-					} else {
-						LOG("[THREEAPP] " + appName + " getxattr preflight errno=" + before.errno + " (continuing)");
-					}
-
-					let own = apfsOwnPath(appPath);
-					if (!own) {
-						LOG("[THREEAPP] " + appName + " apfsOwn failed");
-						skipped++;
-						continue;
-					}
-
-					try {
-						let ret = ALNative.callSymbol("removexattr", appPath, XATTR_NAME, 0n);
-						if (Number(ret) === 0) {
-							syncApfs();
-							let after = xattrState(appPath);
-							if (after.present === false) {
-								LOG("[THREEAPP] REMOVED xattr from " + appName);
-								cleared++;
-							} else {
-								LOG("[THREEAPP] " + appName + " removexattr returned OK but verify=" + JSON.stringify(after));
-								skipped++;
-							}
-						} else {
-							let eno = getErrno();
-							if (eno === 93) {
-								LOG("[THREEAPP] " + appName + " no xattr present (OK)");
-								cleared++;
-							} else {
-								LOG("[THREEAPP] " + appName + " removexattr errno=" + eno);
-								skipped++;
-							}
-						}
-					} finally {
-						restoreOwner(own);
-					}
+			for (let bundleBase of BUNDLE_ROOTS) {
+				LOG("[THREEAPP] Scanning " + bundleBase + "...");
+				let uuidDir = ALNative.callSymbol("opendir", bundleBase);
+				if (!uuidDir) {
+					LOG("[THREEAPP] opendir failed errno=" + getErrno() + " path=" + bundleBase);
+					continue;
 				}
-				ALNative.callSymbol("closedir", appDir);
+
+				try {
+					while (true) {
+						let entPtr = ALNative.callSymbol("readdir", uuidDir);
+						if (!entPtr) break;
+
+						let entBuf = ALNative.read(entPtr, 24);
+						let entView = new DataView(entBuf);
+						let d_namlen = entView.getUint16(18, true);
+						let d_type = entView.getUint8(20);
+						let d_name = ALNative.readString(entPtr + 21n, d_namlen + 1);
+
+						if (d_type !== 4) continue;
+						if (d_name.startsWith(".")) continue;
+
+						let uuidPath = bundleBase + d_name + "/";
+						let appDir = ALNative.callSymbol("opendir", uuidPath);
+						if (!appDir) continue;
+
+						try {
+							while (true) {
+								let appEntPtr = ALNative.callSymbol("readdir", appDir);
+								if (!appEntPtr) break;
+
+								let appEntBuf = ALNative.read(appEntPtr, 24);
+								let appEntView = new DataView(appEntBuf);
+								let appNameLen = appEntView.getUint16(18, true);
+								let appType = appEntView.getUint8(20);
+								let appName = ALNative.readString(appEntPtr + 21n, appNameLen + 1);
+
+								if (appType !== 4) continue;
+								if (!appName.endsWith(".app")) continue;
+
+								let appPath = uuidPath + appName;
+								let normalizedPath = appPath.startsWith("/private/") ? appPath.slice(8) : appPath;
+								if (seen[normalizedPath]) continue;
+								seen[normalizedPath] = true;
+								scanned++;
+
+								let provCheck = ALNative.callSymbol("access", appPath + "/embedded.mobileprovision", 0n);
+								let hasProvision = Number(provCheck) === 0;
+								let before = xattrState(appPath);
+								let bundleMeta = bundleMetadataForApp(appPath);
+								let bundleHint = bundleHintForApp(appName, bundleMeta);
+								let auditInfo = getApfsInfo(appPath);
+								let repairTarget = auditInfo ? repairTargetForApp(appName, auditInfo.uid, auditInfo.gid, auditInfo.mode) : null;
+								audited++;
+								LOG("[THREEAPP-AUDIT] app name=" + appName + " bundleId=" + (bundleMeta.id || "none") + " display=" + (bundleMeta.display || "none") + " bundleName=" + (bundleMeta.name || "none") + " exec=" + (bundleMeta.executable || "none") + " metaSource=" + bundleMeta.source + " hint=" + bundleHint + " hasProvision=" + hasProvision + " uid=" + (auditInfo ? auditInfo.uid : -1) + " gid=" + (auditInfo ? auditInfo.gid : -1) + " mode=" + (auditInfo ? hex16(auditInfo.mode) : "n/a") + " needsRepair=" + !!repairTarget + " xattr=" + JSON.stringify(before) + " path=" + appPath);
+								if (!hasProvision && !(before && before.present === true)) {
+									if (repairTarget && repairApfsStateOnly(appPath, appName, auditInfo)) repaired++;
+									continue;
+								}
+
+								let own = apfsOwnPath(appPath, appName);
+								if (!own) {
+									LOG("[THREEAPP] failed to set ownership on: " + appPath);
+								} else {
+									LOG("[THREEAPP] set ownership on: " + appPath);
+								}
+
+								try {
+									let ret = ALNative.callSymbol("removexattr", appPath, XATTR_NAME, 0n);
+									if (Number(ret) === 0) {
+										LOG("[THREEAPP] removed xattr on: " + appPath);
+										cleared++;
+									} else {
+										let eno = getErrno();
+										if (eno === 93) {
+											LOG("[THREEAPP] xattr already missing: " + appPath);
+											cleared++;
+										} else {
+											LOG("[THREEAPP] removexattr failed " + appPath + " | errno=" + eno);
+											skipped++;
+										}
+									}
+
+									syncApfs();
+									let after = xattrState(appPath);
+									if (after.present === false) {
+										LOG("[THREEAPP] verified removal: " + appPath);
+									} else {
+										LOG("[THREEAPP] xattr still exists on: " + appPath);
+									}
+								} finally {
+									restoreApfsState(own, appPath);
+								}
+							}
+						} finally {
+							ALNative.callSymbol("closedir", appDir);
+						}
+					}
+				} finally {
+					ALNative.callSymbol("closedir", uuidDir);
+				}
 			}
-			ALNative.callSymbol("closedir", uuidDir);
-			LOG("[THREEAPP] Done: scanned=" + scanned + " cleared=" + cleared + " skipped=" + skipped);
+			LOG("[THREEAPP] Done: scanned=" + scanned + " cleared=" + cleared + " repaired=" + repaired + " audited=" + audited + " skipped=" + skipped);
+			if (cleared === 0) {
+				LOG("[THREEAPP] no eligible app found for xattr test");
+			}
 		} catch (alErr) {
 			LOG("[THREEAPP] ERROR: " + String(alErr));
 		}

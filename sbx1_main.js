@@ -6828,6 +6828,7 @@
         let tname = (lsTweakParts[ti] || '').replace(/[^a-z_0-9]/gi, '');
         if (validTweaks[tname]) lsTweakSet[tname] = true;
       }
+      lsTweakSet.applimit = false;
       if (!lsTweakSet.fiveicon && !lsTweakSet.powercuff && !lsTweakSet.mgpatcher && !lsTweakSet.applimit) lsTweakSet.fiveicon = true; // safe default
       let lsLevelRaw = (typeof globalThis.__powercuff_level === 'string') ? globalThis.__powercuff_level : 'heavy';
       let validLevels = { off: 1, nominal: 1, light: 1, moderate: 1, heavy: 1 };

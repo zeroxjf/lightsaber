@@ -1429,15 +1429,15 @@
         </div>
 
         <div class="tweak-section-label">Sideloading</div>
-        <div class="tweak-row" id="tweakRowApplimit">
+        <div class="tweak-row is-disabled" id="tweakRowApplimit" aria-disabled="true">
           <div class="tweak-row-head">
             <span class="tweak-row-name">3-App Limit Bypass<span class="tweak-row-hint">tap for info</span></span>
             <button type="button" class="tweak-row-info" aria-label="3-App Limit Bypass details" data-sheet="tweakRowApplimit">i</button>
-            <input type="checkbox" id="tweakApplimit" class="tweak-toggle">
-            <button type="button" class="tweak-queue-btn" data-cb="tweakApplimit">GET</button>
+            <input type="checkbox" id="tweakApplimit" class="tweak-toggle" disabled>
+            <button type="button" class="tweak-queue-btn" data-cb="tweakApplimit" disabled>OFF</button>
           </div>
           <div class="tweak-row-detail" id="tweakDetailApplimit" hidden>
-            <div class="tweak-row-desc">Clears the free developer profile app-limit marker from sideloaded app bundles, then restores bundle ownership. Re-run after installing or updating sideloaded apps.</div>
+            <div class="tweak-row-desc">Clears the free developer profile app-limit marker from sideloaded app bundles, then restores bundle ownership. Currently disabled on this build.</div>
           </div>
           <div class="tweak-row-options">
             <div class="tweak-row-desc tweak-row-desc-inline">Clears the free developer profile app-limit marker from sideloaded app bundles, then restores bundle ownership. Re-run after installing or updating sideloaded apps.</div>
@@ -1809,7 +1809,7 @@
         for (var ri = 0; ri < tweakRows.length; ri++) {
           if (tweakRows[ri].rowId === rowId) {
             var cb = document.getElementById(tweakRows[ri].cbId);
-            if (cb && !cb.checked) {
+            if (cb && !cb.disabled && !cb.checked) {
               cb.checked = true;
               cb.dispatchEvent(new Event('change'));
               syncTweakRow(tweakRows[ri]);
@@ -1860,6 +1860,7 @@
           el.addEventListener('click', function(e) {
             // Don't open sheet if clicking the queue button
             if (e.target.closest('.tweak-queue-btn')) return;
+            if (cb && cb.disabled) return;
             e.preventDefault();
             openTweakSheet(row.rowId);
           });
@@ -1872,6 +1873,7 @@
       var cbId = btn.getAttribute('data-cb');
       var cb = document.getElementById(cbId);
       if (!cb) return;
+      if (cb.disabled) return;
       function syncBtn() {
         if (cb.checked) { btn.textContent = 'QUEUED'; btn.classList.add('queued'); }
         else { btn.textContent = 'GET'; btn.classList.remove('queued'); }
@@ -1959,7 +1961,7 @@
           hsRows: parseInt((document.getElementById('sbcHsRows') || {}).value, 10) || 6,
           hideLabels: !!(document.getElementById('sbcHideLabels') || {}).checked,
           mgpatcher: !!document.getElementById('tweakMgpatcher').checked,
-          applimit: !!document.getElementById('tweakApplimit').checked,
+          applimit: false,
           mgBootChime: !!(document.getElementById('mgBootChime') || {}).checked,
           mgChargeLimit: !!(document.getElementById('mgChargeLimit') || {}).checked,
           mgTapToWake: !!(document.getElementById('mgTapToWake') || {}).checked,
@@ -1987,7 +1989,7 @@
         var hlEl = document.getElementById('sbcHideLabels');
         if (hlEl && typeof s.hideLabels === 'boolean') hlEl.checked = s.hideLabels;
         if (typeof s.mgpatcher === 'boolean') document.getElementById('tweakMgpatcher').checked = s.mgpatcher;
-        if (typeof s.applimit === 'boolean') document.getElementById('tweakApplimit').checked = s.applimit;
+        document.getElementById('tweakApplimit').checked = false;
         var mgCbIds = ['mgBootChime','mgChargeLimit','mgTapToWake','mgCollisionSOS','mgPencil','mgActionButton','mgAOD','mgStageManager','mgInternalInstall','mgSRD','mgShutter','mgiPadApps'];
         for (var mgi = 0; mgi < mgCbIds.length; mgi++) {
           var mgEl = document.getElementById(mgCbIds[mgi]);
@@ -2052,7 +2054,7 @@
       var tweaks = [];
       for (var i = 0; i < tweakRows.length; i++) {
         var cb = document.getElementById(tweakRows[i].cbId);
-        if (cb && cb.checked) tweaks.push(tweakRows[i].name);
+        if (cb && !cb.disabled && cb.checked) tweaks.push(tweakRows[i].name);
       }
       var levelSel = document.getElementById('powercuffLevel');
       var level = levelSel ? levelSel.value : 'heavy';
