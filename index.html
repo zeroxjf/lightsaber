@@ -1782,11 +1782,11 @@
           </div>
           <div class="expectation-row" data-expectation="2">
             <span class="expectation-badge">2</span>
-            <span class="expectation-copy"><strong>The whole run is about 1 minute.</strong> Most of it is the freeze &mdash; there is no UI progress because WebKit is paused.</span>
+            <span class="expectation-copy"><strong>The freeze lasts about 45&ndash;60 seconds.</strong> No UI progress while WebKit is paused &mdash; that is normal.</span>
           </div>
           <div class="expectation-row" data-expectation="3">
             <span class="expectation-badge">3</span>
-            <span class="expectation-copy"><strong>Safari will crash to the home screen.</strong> That is the good sign &mdash; tweaks are about to install.</span>
+            <span class="expectation-copy"><strong>Safari will crash to the home screen after the freeze.</strong> That is the good signal &mdash; tweaks are about to install.</span>
           </div>
           <div class="expectation-row" data-expectation="4">
             <span class="expectation-badge">4</span>
@@ -1856,7 +1856,7 @@
       <a href="https://twitter.com/cro4js" target="_blank" rel="noopener">@cro4js</a> &mdash; UI suggestions
     </div>
 
-    <p class="version">v0.0.121</p>
+    <p class="version">v0.0.122</p>
   </div>
 
   <div class="tweak-sheet-backdrop" id="tweakSheetBackdrop"></div>
@@ -1893,8 +1893,8 @@
       <p>After you press Proceed, keep Safari open and do not lock the phone. The full run usually takes about 1 minute, approximately.</p>
       <div class="run-expectations" style="margin-top:12px;text-align:left">
         <div class="expectation-list">
-          <div class="expectation-row"><span class="expectation-badge">✓</span><span class="expectation-copy"><strong>Page freezes:</strong> WebKit handoff &mdash; no UI updates after that.</span></div>
-          <div class="expectation-row"><span class="expectation-badge">✓</span><span class="expectation-copy"><strong>Safari crashes to home screen:</strong> good sign &mdash; tweaks about to install.</span></div>
+          <div class="expectation-row"><span class="expectation-badge">✓</span><span class="expectation-copy"><strong>Page freezes for ~45&ndash;60s:</strong> WebKit handoff &mdash; no UI updates after that.</span></div>
+          <div class="expectation-row"><span class="expectation-badge">✓</span><span class="expectation-copy"><strong>Safari crashes to home screen:</strong> good signal &mdash; tweaks about to install.</span></div>
           <div class="expectation-row"><span class="expectation-badge">✓</span><span class="expectation-copy"><strong>Wait 10&ndash;20 seconds:</strong> then check the home screen.</span></div>
         </div>
       </div>
@@ -2033,9 +2033,9 @@
         stage: 'fcall',
         phase: 2,
         hit: 1,
-        expected: '<strong>Safari will freeze, then crash to the home screen.</strong> That is the good sign &mdash; tweaks are about to install. Just wait 10&ndash;20 seconds after Safari crashes. Don\u2019t switch apps or lock the phone.',
+        expected: '<strong>Safari will freeze, then crash to the home screen after about 45&ndash;60 seconds.</strong> That is the good signal &mdash; tweaks are about to install. Just wait 10&ndash;20 seconds after Safari crashes. Don\u2019t switch apps or lock the phone.',
         name: 'Exploit chain handed off',
-        sub: 'Safari will freeze, then crash to the home screen',
+        sub: 'Safari will freeze, then crash to the home screen after ~45\u201360s',
         log: 'freeze'
       },
       { match: '[+] SBX0 complete',                         stage: 'sbx0',        phase: 3, name: 'First sandbox escape complete', sub: 'Preparing SBX1 handoff',                         log: 'SBX0 complete; moving deeper into the chain', logCls: 'ok' },
@@ -2927,7 +2927,7 @@
           '<span class="install-status-dot"></span>' +
           '<span class="install-status-body">' +
             '<span class="install-status-title">Running exploit chain &mdash; about 1 minute</span>' +
-            '<span class="install-status-meta">Safari will freeze, then crash to the home screen. That is the good sign &mdash; just wait 10–20 seconds after the crash.</span>' +
+            '<span class="install-status-meta">Safari will freeze, then crash to the home screen after about 45&ndash;60 seconds. That is the good signal &mdash; just wait 10–20 seconds after the crash.</span>' +
           '</span>';
       }
       var btn = document.getElementById('runBtn');
