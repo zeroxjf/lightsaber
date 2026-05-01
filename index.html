@@ -425,7 +425,7 @@
       justify-content: center;
     }
     .bookmark-prompt-close:active { background: var(--border); }
-    .warning, .disclaimer, .caution {
+    .warning, .disclaimer, .caution, .debug {
       border-radius: 10px;
       padding: 11px 13px;
       margin-bottom: 12px;
@@ -1827,6 +1827,13 @@
       </div>
     </div>
 
+    <details class="debug">
+      <summary><strong>Extra debugging</strong> &mdash; capture device logs from a Mac</summary>
+      <div class="details-body">
+        Download <a href="./syslog.py" download="syslog.py">syslog.py</a> (<a href="https://github.com/zeroxjf/LightSaber/blob/main/syslog.py" target="_blank" rel="noopener">source</a>), connect and trust your iPhone, then run <code>python3 syslog.py</code> from Terminal. Press <code>Ctrl+C</code> after a run; the filtered log is saved under <code>logs/</code>.
+      </div>
+    </details>
+
     <details class="disclaimer">
       <summary><strong>Not tweak injection</strong> &mdash; runtime JS modification only</summary>
       <div class="details-body">
@@ -1848,13 +1855,6 @@
       </div>
     </details>
 
-    <details class="debug">
-      <summary><strong>Extra debugging</strong> &mdash; capture device logs from a Mac</summary>
-      <div class="details-body">
-        Download <a href="./syslog.py" download="syslog.py">syslog.py</a> (<a href="https://github.com/zeroxjf/LightSaber/blob/main/syslog.py" target="_blank" rel="noopener">source</a>), connect and trust your iPhone, then run <code>python3 syslog.py</code> from Terminal. Press <code>Ctrl+C</code> after a run; the filtered log is saved under <code>logs/</code>.
-      </div>
-    </details>
-
     <div style="margin-top:8px;font-size:0.72rem;color:var(--subtle);line-height:1.7">
       <div style="font-family:var(--mono);font-size:0.6rem;font-weight:600;color:var(--faint);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px">Credits</div>
       <a href="https://iverify.io/blog/darksword-ios-exploit-kit-explained">iVerify</a> &amp; <a href="https://cloud.google.com/blog/topics/threat-intelligence/darksword-ios-exploit-chain">Google GTIG</a> &mdash; DarkSword chain documentation<br>
@@ -1865,7 +1865,7 @@
       <a href="https://twitter.com/cro4js" target="_blank" rel="noopener">@cro4js</a> &mdash; UI suggestions
     </div>
 
-    <p class="version">v0.0.126</p>
+    <p class="version">v0.0.128</p>
   </div>
 
   <div class="tweak-sheet-backdrop" id="tweakSheetBackdrop"></div>
