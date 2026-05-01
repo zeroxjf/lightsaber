@@ -671,7 +671,7 @@
       font-weight: 800;
     }
     #rawLogBox {
-      display: none;
+      display: block;
       margin-top: 10px;
       background: #1a1a1c;
       border: 1px solid #2c2c2e;
@@ -679,7 +679,7 @@
       overflow: hidden;
       box-shadow: 0 12px 32px rgba(0,0,0,0.18);
     }
-    #rawLogBox.active { display: block; }
+    #rawLogBox.hidden { display: none; }
     #rawLogBox .raw-log-header {
       display: flex;
       align-items: center;
@@ -1598,7 +1598,7 @@
       </div>
       <div id="rawLogBox" aria-live="polite">
         <div class="raw-log-header">
-          <span>Raw WebContent Log<span class="raw-log-subtitle">iframe and worker messages before Safari freezes</span></span>
+          <span>Raw WebContent Log<span class="raw-log-subtitle">always visible; iframe and worker messages before Safari freezes</span></span>
           <span class="raw-log-actions">
             <button type="button" class="raw-log-action" onclick="clearRawLogView()">Clear</button>
             <button type="button" class="raw-log-action" onclick="hideRawLogView()">Hide</button>
@@ -1649,7 +1649,7 @@
       <a href="https://twitter.com/cro4js" target="_blank" rel="noopener">@cro4js</a> &mdash; UI suggestions
     </div>
 
-    <p class="version">v0.0.100</p>
+    <p class="version">v0.0.101</p>
   </div>
 
   <div class="tweak-sheet-backdrop" id="tweakSheetBackdrop"></div>
@@ -1935,12 +1935,12 @@
 
     function showRawLogView() {
       var lb = document.getElementById('rawLogBox');
-      if (lb) lb.className = 'active';
+      if (lb) lb.className = '';
     }
 
     function hideRawLogView() {
       var lb = document.getElementById('rawLogBox');
-      if (lb) lb.className = '';
+      if (lb) lb.className = 'hidden';
     }
 
     function clearRawLogView(keepActive) {
