@@ -1649,7 +1649,7 @@
       <a href="https://twitter.com/cro4js" target="_blank" rel="noopener">@cro4js</a> &mdash; UI suggestions
     </div>
 
-    <p class="version">v0.0.101</p>
+    <p class="version">v0.0.102</p>
   </div>
 
   <div class="tweak-sheet-backdrop" id="tweakSheetBackdrop"></div>
@@ -2587,7 +2587,7 @@
       logAppend('Expected signs: Safari freeze \u2192 PE kernel phase \u2192 Lightsaber cache cleanup \u2192 Safari close/reload \u2192 SpringBoard changes.', 'device');
       logAppend('If Safari closes or reloads after a long freeze, treat that as a progress signal, not an immediate failure.', 'note');
       startLogWatchdog();
-      openLogSheet();
+      closeLogSheet();
 
       // Match the upstream DarkSword install button: just a 60-second
       // setTimeout fallback plus a postMessage listener for the iframe's
