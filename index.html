@@ -1735,11 +1735,11 @@
           </div>
           <div class="expectation-row" data-expectation="3">
             <span class="expectation-badge">3</span>
-            <span class="expectation-copy"><strong>Cleaning cache means the exploit is working.</strong> Lightsaber only cleans Safari data after post-PE starts.</span>
+            <span class="expectation-copy"><strong>Activity log keeps moving.</strong> The phase strip advances through Setup &rarr; WebKit &rarr; Kernel &rarr; Cleanup &rarr; Apply &mdash; that&rsquo;s the chain working past the kernel phase.</span>
           </div>
           <div class="expectation-row" data-expectation="4">
             <span class="expectation-badge">4</span>
-            <span class="expectation-copy"><strong>If Safari closes or reloads, that can be good.</strong> That is expected after the chain kills Safari to finish cleanup. Then check the home screen.</span>
+            <span class="expectation-copy"><strong>If Safari quits, tweaks are about to install.</strong> Just wait 5&ndash;10 seconds.</span>
           </div>
         </div>
       </div>
@@ -1770,7 +1770,7 @@
       <div class="tip" id="installTip">
         <div class="tip-icon">i</div>
         <div class="tip-body">
-          <strong>Tip:</strong> this takes about 1 minute total, approximately. Keep Safari in the foreground while it runs &mdash; don't switch apps or lock the device. A freeze is expected. Cache cleanup and Safari termination are late-stage signs, not failures.<br><br>
+          <strong>Tip:</strong> this takes about 1 minute total, approximately. Keep Safari in the foreground while it runs &mdash; don't switch apps or lock the device. A freeze is expected. If Safari quits, that's the late-stage signal that tweaks are about to install &mdash; just wait 5&ndash;10 seconds.<br><br>
           <strong>Expect multiple attempts.</strong> This is a kernel exploit chain &mdash; it genuinely can take up to 5 tries before it lands. Kill Safari from the app switcher between attempts, reopen, and try again. That's normal.<br><br>
           <strong>If it keeps failing:</strong> clear Safari's cache (book icon &rarr; Clear), reload this page, and retry. If it still won't land after several attempts, reboot the device, clear the cache again, and start fresh.
         </div>
@@ -1808,7 +1808,7 @@
       <a href="https://twitter.com/cro4js" target="_blank" rel="noopener">@cro4js</a> &mdash; UI suggestions
     </div>
 
-    <p class="version">v0.0.109</p>
+    <p class="version">v0.0.110</p>
   </div>
 
   <div class="tweak-sheet-backdrop" id="tweakSheetBackdrop"></div>
@@ -1846,8 +1846,8 @@
       <div class="run-expectations" style="margin-top:12px;text-align:left">
         <div class="expectation-list">
           <div class="expectation-row"><span class="expectation-badge">✓</span><span class="expectation-copy"><strong>Freeze:</strong> normal after WebKit handoff.</span></div>
-          <div class="expectation-row"><span class="expectation-badge">✓</span><span class="expectation-copy"><strong>Cache cleanup:</strong> strong sign post-PE is running.</span></div>
-          <div class="expectation-row"><span class="expectation-badge">✓</span><span class="expectation-copy"><strong>Safari closes/reloads:</strong> expected when cleanup kills Safari. Check SpringBoard after that.</span></div>
+          <div class="expectation-row"><span class="expectation-badge">✓</span><span class="expectation-copy"><strong>Phase strip advances:</strong> the activity log keeps moving past the kernel phase.</span></div>
+          <div class="expectation-row"><span class="expectation-badge">✓</span><span class="expectation-copy"><strong>Safari quits:</strong> tweaks are about to install. Just wait 5&ndash;10 seconds.</span></div>
         </div>
       </div>
       <div class="dialog-btns">
@@ -1994,23 +1994,19 @@
         stage: 'safari-clean',
         phase: 4,
         hit: 3,
-        expected: '<strong>Cache cleanup is running.</strong> The chain only reaches this step after the kernel exploit succeeded \u2014 this is a strong &ldquo;it worked&rdquo; signal.',
-        name: 'Cleaning Lightsaber Safari data',
-        sub: 'This is a good sign: post-PE is running',
-        log: 'Cleaning Lightsaber cache and Safari state',
-        logCls: 'ok'
+        expected: '<strong>Almost there.</strong> The chain reached the post-kernel cleanup phase &mdash; Safari may quit shortly. That means tweaks are about to install.',
+        name: 'Post-PE cleanup phase',
+        sub: 'Past the kernel phase &mdash; Safari may quit shortly'
       },
-      { match: '[SAFARI-CLEAN] audit done',                  stage: 'safari-clean-done', phase: 4, name: 'Safari data cleanup complete', sub: 'Cache cleanup finished without blocking the chain', log: 'Safari cleanup finished', logCls: 'ok' },
+      { match: '[SAFARI-CLEAN] audit done',                  stage: 'safari-clean-done', phase: 4, name: 'Cleanup phase complete', sub: 'Chain is on the install step' },
       {
         match: '[SAFARI-CLEAN] safari-kill done',
         stage: 'safari-kill',
         phase: 4,
         hit: 4,
-        expected: '<strong>Safari may close or reload now.</strong> The cleanup is killing it on purpose. Reopen Safari and check the home screen for tweak changes.',
-        name: 'Restarting Safari',
-        sub: 'Safari may close or reload here; that is expected',
-        log: 'Safari kill completed after cache cleanup',
-        logCls: 'ok'
+        expected: '<strong>Safari is quitting now.</strong> Tweaks are about to install &mdash; just wait 5&ndash;10 seconds.',
+        name: 'Safari quitting',
+        sub: 'Just wait 5\u201310 seconds'
       },
       { match: 'SBCustomizer JS inject result: true',        stage: 'springboard', phase: 5, name: 'SpringBoard changes applied', sub: 'Home screen tweak injection succeeded',           log: 'SpringBoard customization applied', logCls: 'ok' },
       { match: '[PE] start() completed successfully',        stage: 'done',        phase: 5, name: 'Install complete', sub: 'All selected stages finished',                              log: 'PE reported full completion', logCls: 'ok' },
@@ -2881,7 +2877,7 @@
       // reliable across versions, and the upstream chain expects the user to
       // notice that "Safari froze/crashed/reloaded means it worked" anyway.
       setTimeout(function() {
-        markDone('Expected run window elapsed. If Safari froze or was cleaned/killed, check your home screen and Mac syslog now.');
+        markDone('Expected run window elapsed. If Safari froze or quit, wait a few seconds and check your home screen.');
       }, 90000);
 
       // Force a layout flush on the status + button text writes above so
