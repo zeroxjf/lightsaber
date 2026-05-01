@@ -328,6 +328,7 @@
     }
     .tip-body { flex: 1; }
     .tip-body strong { color: var(--accent-dark); font-weight: 700; }
+    .tip.hidden { display: none; }
     @keyframes tipPulse {
       0%, 100% { box-shadow: 0 0 0 0 rgba(45, 169, 255, 0.0); }
       50%      { box-shadow: 0 0 0 6px rgba(45, 169, 255, 0.18); }
@@ -544,41 +545,28 @@
       letter-spacing: -0.02em;
       text-align: left;
     }
+    /* Stage banner sits in the same card-alt block as the phase strip — no
+       border between them so they read as one cohesive header. The phase
+       strip's pulsing active bar replaces the old standalone status dot. */
     .log-stage-banner {
-      padding: 10px 18px;
+      padding: 12px 18px 6px;
       background: var(--card-alt);
-      border-bottom: 1px solid var(--border-soft);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      min-height: 42px;
-    }
-    .log-stage-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--accent);
-      flex-shrink: 0;
-      animation: stagePulse 1.6s ease-in-out infinite;
-    }
-    .log-stage-dot.done { background: #30d158; animation: none; }
-    .log-stage-dot.err { background: #ff453a; animation: none; }
-    @keyframes stagePulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.3; }
     }
     .log-stage-text {
-      flex: 1;
-      font-size: 0.8rem;
-      font-weight: 600;
+      font-size: 0.85rem;
+      font-weight: 700;
       color: var(--ink);
-      line-height: 1.35;
+      line-height: 1.3;
+      letter-spacing: -0.01em;
     }
+    .log-stage-banner.done .log-stage-text { color: #0f7a3d; }
+    .log-stage-banner.err  .log-stage-text { color: #c41e1e; }
     .log-stage-sub {
       font-size: 0.7rem;
       font-weight: 500;
       color: var(--subtle);
-      margin-top: 1px;
+      margin-top: 2px;
+      line-height: 1.4;
     }
     .log-sheet-body {
       overflow-y: auto;
@@ -619,7 +607,7 @@
       display: grid;
       grid-template-columns: repeat(5, 1fr);
       gap: 6px;
-      padding: 10px 18px 12px;
+      padding: 6px 18px 12px;
       background: var(--card-alt);
       border-bottom: 1px solid var(--border-soft);
     }
@@ -1671,11 +1659,8 @@
           <span class="log-sheet-title">Activity Log</span>
         </div>
         <div class="log-stage-banner" id="logStageBanner">
-          <div class="log-stage-dot" id="logStageDot"></div>
-          <div>
-            <div class="log-stage-text" id="logStageText">Waiting to start</div>
-            <div class="log-stage-sub" id="logStageSub"></div>
-          </div>
+          <div class="log-stage-text" id="logStageText">Waiting to start</div>
+          <div class="log-stage-sub" id="logStageSub"></div>
         </div>
         <div class="log-phase-strip" id="logPhaseStrip" aria-hidden="true">
           <div class="log-phase" data-phase="1"><div class="log-phase-bar"></div><div class="log-phase-label">Setup</div></div>
@@ -1694,7 +1679,7 @@
       </div>
       <div id="rawLogBox" aria-live="polite">
         <div class="raw-log-header">
-          <span>Raw WebContent Log<span class="raw-log-subtitle">always visible; iframe and worker messages before Safari freezes</span></span>
+          <span>Raw WebContent Log<span class="raw-log-subtitle">verbose stream from iframe and worker</span></span>
           <span class="raw-log-actions">
             <button type="button" class="raw-log-action" onclick="clearRawLogView()">Clear</button>
             <button type="button" class="raw-log-action" onclick="hideRawLogView()">Hide</button>
@@ -1704,7 +1689,7 @@
           <div class="raw-log-empty" id="rawLogEmpty">Raw exploit logs will appear here when a run starts.</div>
         </div>
       </div>
-      <div class="tip">
+      <div class="tip" id="installTip">
         <div class="tip-icon">i</div>
         <div class="tip-body">
           <strong>Tip:</strong> this takes about 1 minute total, approximately. Keep Safari in the foreground while it runs &mdash; don't switch apps or lock the device. A freeze is expected. Cache cleanup and Safari termination are late-stage signs, not failures.<br><br>
@@ -1745,7 +1730,7 @@
       <a href="https://twitter.com/cro4js" target="_blank" rel="noopener">@cro4js</a> &mdash; UI suggestions
     </div>
 
-    <p class="version">v0.0.106</p>
+    <p class="version">v0.0.107</p>
   </div>
 
   <div class="tweak-sheet-backdrop" id="tweakSheetBackdrop"></div>
@@ -1879,13 +1864,7 @@
         expected: '<strong>Safari is about to freeze.</strong> WebKit just reached the native-call handoff. Stay on this page \u2014 don\u2019t switch apps or lock the phone.',
         name: 'Exploit chain handed off',
         sub: 'Safari is about to freeze \u2014 this is expected',
-        log: 'freeze',
-        notes: [
-          { text: 'Safari freezing means WebKit reached the native-call handoff.', cls: 'ok', delay: 0 },
-          { text: 'Next backend sign: PE runs in mediaplaybackd, then Lightsaber cache cleanup starts.', cls: 'device', delay: 0.15 },
-          { text: 'If Safari closes or reloads later, that usually means cache cleanup killed Safari after successful post-PE progress.', cls: 'ok', delay: 0.3 },
-          { text: 'Home screen changes happen near the end when SpringBoard injection runs.', cls: 'device', delay: 0.45 }
-        ]
+        log: 'freeze'
       },
       { match: '[+] SBX0 complete',                         stage: 'sbx0',        phase: 3, name: 'First sandbox escape complete', sub: 'Preparing SBX1 handoff',                         log: 'SBX0 complete; moving deeper into the chain', logCls: 'ok' },
       { match: 'Stage 5 started',                           stage: 'sbx1',        phase: 3, name: 'Second sandbox escape running', sub: 'Escalating into the PE launch path',               log: 'SBX1 started' },
@@ -1935,13 +1914,14 @@
           if (rule.stage === currentStage && rule.name === currentStageName) return;
           currentStage = rule.stage;
           currentStageName = rule.name;
-          var dot = document.getElementById('logStageDot');
+          var stageBanner = document.getElementById('logStageBanner');
           var stageText = document.getElementById('logStageText');
           var stageSub = document.getElementById('logStageSub');
           if (stageText) stageText.textContent = rule.name;
           if (stageSub) stageSub.textContent = rule.sub;
-          if (dot) {
-            dot.className = 'log-stage-dot' + (rule.stage === 'done' ? ' done' : '');
+          if (stageBanner) {
+            stageBanner.classList.remove('err');
+            stageBanner.classList.toggle('done', rule.stage === 'done');
           }
           if (rule.phase) setPhase(rule.phase);
           if (rule.expected) setExpectedCallout(rule.expected, rule.phase);
@@ -1961,10 +1941,13 @@
     }
 
     function setStageError(msg) {
-      var dot = document.getElementById('logStageDot');
+      var stageBanner = document.getElementById('logStageBanner');
       var stageText = document.getElementById('logStageText');
       var stageSub = document.getElementById('logStageSub');
-      if (dot) dot.className = 'log-stage-dot err';
+      if (stageBanner) {
+        stageBanner.classList.remove('done');
+        stageBanner.classList.add('err');
+      }
       if (stageText) stageText.textContent = msg || 'Something went wrong';
       if (stageSub) stageSub.textContent = 'Check the log below for details';
       markPhaseError();
@@ -2530,10 +2513,13 @@
       doneSignal = true;
       stopLogWatchdog();
       logAppend(message || 'Install complete!', 'ok');
-      var dot = document.getElementById('logStageDot');
+      var stageBanner = document.getElementById('logStageBanner');
       var stageText = document.getElementById('logStageText');
       var stageSub = document.getElementById('logStageSub');
-      if (dot) dot.className = 'log-stage-dot done';
+      if (stageBanner) {
+        stageBanner.classList.remove('err');
+        stageBanner.classList.add('done');
+      }
       if (stageText) stageText.textContent = message ? 'Check result' : 'Install complete';
       if (stageSub) stageSub.textContent = message ? 'Safari returned after the expected run window' : 'All tweaks applied successfully';
       markAllPhasesDone();
@@ -2559,6 +2545,9 @@
       var text = message || 'Exploit failed. Force-quit Safari and try again.';
       logAppend(text, 'err');
       setStageError('Install failed');
+      // Bring the tip back so the user has retry guidance after a failure.
+      var tipEl = document.getElementById('installTip');
+      if (tipEl) tipEl.classList.remove('hidden');
       try { sessionStorage.removeItem('ls_running'); } catch(e) {}
       try { localStorage.setItem(RAW_LOG_ACTIVE_KEY, '1'); } catch(e) {}
       var installStatusEl = document.getElementById('installStatus');
@@ -2730,7 +2719,11 @@
       doneSignal = false;
       if (installStatusEl) {
         installStatusEl.classList.remove('error');
-        installStatusEl.textContent = 'Running chain: Safari may freeze; cache cleanup may close or reload Safari near the end.';
+        // This line is the one bit of running-state copy that's guaranteed
+        // to paint before the WebKit freeze, so it has to carry the freeze
+        // warning itself — the in-log Expected callout may not get a chance
+        // to render once fcall hits.
+        installStatusEl.textContent = 'Running chain (~1 min). Safari may freeze — that’s expected.';
       }
       var btn = document.getElementById('runBtn');
       if (btn) {
@@ -2761,26 +2754,26 @@
       currentStageName = 'Starting';
       resetPhases();
       resetExpectations();
-      var dot = document.getElementById('logStageDot');
+      var stageBanner = document.getElementById('logStageBanner');
       var stageText = document.getElementById('logStageText');
       var stageSub = document.getElementById('logStageSub');
-      if (dot) dot.className = 'log-stage-dot';
+      if (stageBanner) { stageBanner.classList.remove('done'); stageBanner.classList.remove('err'); }
       if (stageText) stageText.textContent = 'Starting exploit chain';
       if (stageSub) stageSub.textContent = 'Loading components...';
-      // The activity log sits inline directly below the install button now,
-      // so the legacy "View Log" jump link is redundant during a run.
+      // Hide chrome that duplicates the live activity log during a run: the
+      // legacy "View Log" jump link, the static "What to expect" panel, and
+      // the long retry tip box. The phase strip and Expected callout cover
+      // all of that in-context once the chain is moving.
       var viewLogBtn = document.getElementById('viewLogBtn');
       if (viewLogBtn) viewLogBtn.className = 'btn-view-log';
-      // Hide the static "What to expect" panel — its content is now shown
-      // live in the activity log via the phase strip and Expected callout.
       var runExpEl = document.getElementById('runExpectations');
       if (runExpEl) runExpEl.classList.add('hidden');
+      var tipEl = document.getElementById('installTip');
+      if (tipEl) tipEl.classList.add('hidden');
       var tweakDisplayNames = { fiveicon: 'SBCustomizer', powercuff: 'Powercuff', mgpatcher: 'MobileGestalt Patcher', applimit: '3-App Limit Bypass' };
       var displayTweaks = tweaks.map(function(t) { return tweakDisplayNames[t] || t; });
       rawLogAppend('[UI] Raw WebContent log armed', 'ok');
       logAppend('Starting install with: ' + displayTweaks.join(', '), 'ok');
-      logAppend('Expected signs: Safari freeze \u2192 PE kernel phase \u2192 Lightsaber cache cleanup \u2192 Safari close/reload \u2192 SpringBoard changes.', 'device');
-      logAppend('If Safari closes or reloads after a long freeze, treat that as a progress signal, not an immediate failure.', 'note');
       startLogWatchdog();
       closeLogSheet();
 
