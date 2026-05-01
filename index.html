@@ -1841,7 +1841,7 @@
       <a href="https://twitter.com/cro4js" target="_blank" rel="noopener">@cro4js</a> &mdash; UI suggestions
     </div>
 
-    <p class="version">v0.0.119</p>
+    <p class="version">v0.0.120</p>
   </div>
 
   <div class="tweak-sheet-backdrop" id="tweakSheetBackdrop"></div>
@@ -1988,6 +1988,14 @@
     var RAW_LOG_STORE_KEY = 'ls_raw_log_lines_v1';
     var RAW_LOG_ACTIVE_KEY = 'ls_raw_log_active_v1';
     var RAW_LOG_STORE_LIMIT = 260;
+    var RAW_LOG_DOM_LIMIT = 600;
+    // Sticky-bottom behavior: autoscroll on each new line ONLY while the
+    // user is already pinned at (or near) the bottom of the scroll. As soon
+    // as they scroll up to read history, autoscroll pauses so we don't
+    // fight their input — otherwise every new line yanks them back to
+    // bottom and old lines look like they "go blank" because the scroll
+    // jumps before the eye can track them.
+    var rawLogStickyBottom = true;
     // Maps raw log patterns to user-friendly stage descriptions.
     // Order matters: first match wins. 'log' = message shown in scrolling log (omit to skip).
     // phase: 1 Setup, 2 WebKit, 3 Kernel, 4 Cleanup, 5 Apply.
@@ -2257,17 +2265,34 @@
       if (empty && empty.parentNode) empty.parentNode.removeChild(empty);
       var line = document.createElement('div');
       line.className = 'raw-log-line' + (cls ? ' ' + cls : '');
-      line.textContent = text;
+      line.textContent = (text == null) ? '' : String(text);
       el.appendChild(line);
-      el.scrollTop = el.scrollHeight;
+      // Cap DOM line count so very long runs don't accumulate thousands of
+      // nodes and trigger iOS Safari rendering glitches on scroll.
+      while (el.children.length > RAW_LOG_DOM_LIMIT) el.removeChild(el.firstChild);
+      // Only autoscroll when the user is already at the bottom — see
+      // rawLogStickyBottom note above.
+      if (rawLogStickyBottom) el.scrollTop = el.scrollHeight;
       if (!skipStore) rawLogStoreLine(text, cls);
     }
+
+    // Watch the scroll position so manual scroll-up disables autoscroll
+    // and scrolling back near the bottom re-enables it.
+    (function attachRawLogScrollTracker() {
+      var el = document.getElementById('rawLogScroll');
+      if (!el) return;
+      el.addEventListener('scroll', function() {
+        var dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+        rawLogStickyBottom = dist < 30;
+      }, { passive: true });
+    })();
 
     function clearRawLogView(keepActive) {
       var el = document.getElementById('rawLogScroll');
       if (el) {
         el.innerHTML = '<div class="raw-log-empty" id="rawLogEmpty">WebContent log lines will appear here when a run starts.</div>';
       }
+      rawLogStickyBottom = true;
       try {
         localStorage.removeItem(RAW_LOG_STORE_KEY);
         if (!keepActive) localStorage.removeItem(RAW_LOG_ACTIVE_KEY);
