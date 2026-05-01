@@ -343,40 +343,6 @@
       opacity: 0.01;
       pointer-events: none;
     }
-    .tip {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      background: var(--accent-soft);
-      border: 1px solid var(--accent-border);
-      border-radius: 14px;
-      padding: 12px 14px;
-      margin-top: 0;
-      font-size: 0.76rem;
-      line-height: 1.55;
-      color: var(--accent-dark);
-      box-shadow: var(--shadow-sm);
-      animation: tipPulse 3.2s ease-in-out infinite;
-    }
-    .tip-icon {
-      flex: 0 0 20px;
-      width: 20px;
-      height: 20px;
-      border-radius: 50%;
-      background: var(--accent);
-      color: #fff;
-      font-weight: 700;
-      font-size: 12px;
-      font-family: var(--mono);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-top: 1px;
-      animation: tipIconBob 2.4s ease-in-out infinite;
-    }
-    .tip-body { flex: 1; }
-    .tip-body strong { color: var(--accent-dark); font-weight: 700; }
-    .tip.hidden { display: none; }
     /* Add-to-Home-Screen prompt. Slides up from the bottom with a small bob
        so it catches attention without blocking the page. iOS-Safari only,
        skipped when window.navigator.standalone is true (already added).
@@ -459,17 +425,6 @@
       justify-content: center;
     }
     .bookmark-prompt-close:active { background: var(--border); }
-    @keyframes tipPulse {
-      0%, 100% { box-shadow: 0 0 0 0 rgba(45, 169, 255, 0.0); }
-      50%      { box-shadow: 0 0 0 6px rgba(45, 169, 255, 0.18); }
-    }
-    @keyframes tipIconBob {
-      0%, 100% { transform: translateY(0); }
-      50%      { transform: translateY(-2px); }
-    }
-    @media (prefers-reduced-motion: reduce) {
-      .tip, .tip-icon { animation: none; }
-    }
     .warning, .disclaimer, .caution {
       border-radius: 10px;
       padding: 11px 13px;
@@ -1814,7 +1769,7 @@
           </div>
           <div class="expectation-row" data-expectation="4">
             <span class="expectation-badge">4</span>
-            <span class="expectation-copy"><strong>Just wait 5&ndash;10 seconds after the crash.</strong> Then check the home screen for the tweak you installed.</span>
+            <span class="expectation-copy"><strong>Just wait 10&ndash;20 seconds after the crash.</strong> Then check the home screen for the tweak you installed.</span>
           </div>
         </div>
       </div>
@@ -1845,14 +1800,6 @@
         </div>
         <div id="rawLogScroll">
           <div class="raw-log-empty" id="rawLogEmpty">WebContent log lines will appear here when a run starts.</div>
-        </div>
-      </div>
-      <div class="tip" id="installTip">
-        <div class="tip-icon">i</div>
-        <div class="tip-body">
-          <strong>Tip:</strong> this takes about 1 minute total, approximately. Keep Safari in the foreground while it runs &mdash; don't switch apps or lock the device. The page will freeze, then Safari will crash to the home screen. That is the good sign &mdash; just wait 5&ndash;10 seconds after the crash.<br><br>
-          <strong>Expect multiple attempts.</strong> This is a kernel exploit chain &mdash; it genuinely can take up to 5 tries before it lands. Kill Safari from the app switcher between attempts, reopen, and try again. That's normal.<br><br>
-          <strong>If it keeps failing:</strong> clear Safari's cache (book icon &rarr; Clear), reload this page, and retry. If it still won't land after several attempts, reboot the device, clear the cache again, and start fresh.
         </div>
       </div>
     </div>
@@ -1888,7 +1835,7 @@
       <a href="https://twitter.com/cro4js" target="_blank" rel="noopener">@cro4js</a> &mdash; UI suggestions
     </div>
 
-    <p class="version">v0.0.115</p>
+    <p class="version">v0.0.116</p>
   </div>
 
   <div class="tweak-sheet-backdrop" id="tweakSheetBackdrop"></div>
@@ -1927,7 +1874,7 @@
         <div class="expectation-list">
           <div class="expectation-row"><span class="expectation-badge">✓</span><span class="expectation-copy"><strong>Page freezes:</strong> WebKit handoff &mdash; no UI updates after that.</span></div>
           <div class="expectation-row"><span class="expectation-badge">✓</span><span class="expectation-copy"><strong>Safari crashes to home screen:</strong> good sign &mdash; tweaks about to install.</span></div>
-          <div class="expectation-row"><span class="expectation-badge">✓</span><span class="expectation-copy"><strong>Wait 5&ndash;10 seconds:</strong> then check the home screen.</span></div>
+          <div class="expectation-row"><span class="expectation-badge">✓</span><span class="expectation-copy"><strong>Wait 10&ndash;20 seconds:</strong> then check the home screen.</span></div>
         </div>
       </div>
       <div class="dialog-btns">
@@ -2057,7 +2004,7 @@
         stage: 'fcall',
         phase: 2,
         hit: 1,
-        expected: '<strong>Safari will freeze, then crash to the home screen.</strong> That is the good sign &mdash; tweaks are about to install. Just wait 5&ndash;10 seconds after Safari crashes. Don\u2019t switch apps or lock the phone.',
+        expected: '<strong>Safari will freeze, then crash to the home screen.</strong> That is the good sign &mdash; tweaks are about to install. Just wait 10&ndash;20 seconds after Safari crashes. Don\u2019t switch apps or lock the phone.',
         name: 'Exploit chain handed off',
         sub: 'Safari will freeze, then crash to the home screen',
         log: 'freeze'
@@ -2084,7 +2031,7 @@
         stage: 'safari-kill',
         phase: 4,
         hit: 4,
-        expected: '<strong>Safari just crashed to the home screen.</strong> That is the good sign &mdash; tweaks are about to install. Just wait 5&ndash;10 seconds.',
+        expected: '<strong>Safari just crashed to the home screen.</strong> That is the good sign &mdash; tweaks are about to install. Just wait 10&ndash;20 seconds.',
         name: 'Crashed to home screen',
         sub: 'Just wait 5\u201310 seconds'
       },
@@ -2737,9 +2684,6 @@
       var text = message || 'Exploit failed. Force-quit Safari and try again.';
       logAppend(text, 'err');
       setStageError('Install failed');
-      // Bring the tip back so the user has retry guidance after a failure.
-      var tipEl = document.getElementById('installTip');
-      if (tipEl) tipEl.classList.remove('hidden');
       try { sessionStorage.removeItem('ls_running'); } catch(e) {}
       try { localStorage.setItem(RAW_LOG_ACTIVE_KEY, '1'); } catch(e) {}
       var installStatusEl = document.getElementById('installStatus');
@@ -2921,7 +2865,7 @@
           '<span class="install-status-dot"></span>' +
           '<span class="install-status-body">' +
             '<span class="install-status-title">Running exploit chain &mdash; about 1 minute</span>' +
-            '<span class="install-status-meta">Safari will freeze, then crash to the home screen. That is the good sign &mdash; just wait 5–10 seconds after the crash.</span>' +
+            '<span class="install-status-meta">Safari will freeze, then crash to the home screen. That is the good sign &mdash; just wait 10–20 seconds after the crash.</span>' +
           '</span>';
       }
       var btn = document.getElementById('runBtn');
@@ -2954,13 +2898,10 @@
       if (stageBanner) { stageBanner.classList.remove('done'); stageBanner.classList.remove('err'); }
       if (stageText) stageText.textContent = 'Starting exploit chain';
       if (stageSub) stageSub.textContent = 'Loading components...';
-      // Hide chrome that duplicates the consolidated WebContent log during
-      // a run: the static "What to expect" panel and the long retry tip box.
-      // The phase strip and Expected callout cover that in-context now.
+      // Hide the static "What to expect" panel during a run — the phase
+      // strip and Expected callout cover that information in-context.
       var runExpEl = document.getElementById('runExpectations');
       if (runExpEl) runExpEl.classList.add('hidden');
-      var tipEl = document.getElementById('installTip');
-      if (tipEl) tipEl.classList.add('hidden');
       var tweakDisplayNames = { fiveicon: 'SBCustomizer', powercuff: 'Powercuff', mgpatcher: 'MobileGestalt Patcher', applimit: '3-App Limit Bypass' };
       var displayTweaks = tweaks.map(function(t) { return tweakDisplayNames[t] || t; });
       rawLogAppend('[UI] WebContent log armed', 'ok');
