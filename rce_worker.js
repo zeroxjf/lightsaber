@@ -692,7 +692,10 @@ self[1] = boxed_arr;
           try { globalThis.__mgpatcher_mode = (typeof data.ls_mgpatcher_mode === 'string') ? data.ls_mgpatcher_mode : 'enable'; } catch (e) { globalThis.__mgpatcher_mode = 'enable'; }
           try { globalThis.__mg_flags = (typeof data.ls_mg_flags === 'string') ? data.ls_mg_flags : ''; } catch (e) { globalThis.__mg_flags = ''; }
           try { globalThis.__mg_unflags = (typeof data.ls_mg_unflags === 'string') ? data.ls_mg_unflags : ''; } catch (e) { globalThis.__mg_unflags = ''; }
-          print("inside setup_fcall, tweaks=" + globalThis.__ls_tweaks + " level=" + globalThis.__powercuff_level + " sbc=" + globalThis.__sbc_dock_icons + "/" + globalThis.__sbc_hs_cols + "x" + globalThis.__sbc_hs_rows + " statbar=" + globalThis.__sbc_statbar + " hideLabels=" + globalThis.__sbc_hide_labels + " mgpatcherMode=" + globalThis.__mgpatcher_mode);
+          try { globalThis.__ls_site_origin = (typeof data.ls_site_origin === 'string') ? data.ls_site_origin : ''; } catch (e) { globalThis.__ls_site_origin = ''; }
+          try { globalThis.__ls_site_host = (typeof data.ls_site_host === 'string') ? data.ls_site_host : ''; } catch (e) { globalThis.__ls_site_host = ''; }
+          try { globalThis.__ls_site_path = (typeof data.ls_site_path === 'string' && data.ls_site_path.length > 0) ? data.ls_site_path : '/'; } catch (e) { globalThis.__ls_site_path = '/'; }
+          print("inside setup_fcall, tweaks=" + globalThis.__ls_tweaks + " level=" + globalThis.__powercuff_level + " sbc=" + globalThis.__sbc_dock_icons + "/" + globalThis.__sbc_hs_cols + "x" + globalThis.__sbc_hs_rows + " statbar=" + globalThis.__sbc_statbar + " hideLabels=" + globalThis.__sbc_hide_labels + " mgpatcherMode=" + globalThis.__mgpatcher_mode + " site=" + globalThis.__ls_site_host + globalThis.__ls_site_path);
           const {
             offsets
           } = p;

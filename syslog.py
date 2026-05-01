@@ -29,6 +29,7 @@ RESET = "\033[0m"
 #   sbcustomizer -> [SBC]      (via Native.callSymbol("syslog"))
 #   powercuff  -> [POWERCUFF]  (via Native.callSymbol("syslog"))
 #   pe_main embedded payloads  -> [PE], [THREEAPP], [THREEAPP-AUDIT],
+#                                 [SAFARI-CLEAN],
 #                                 [FILE-DL], [HTTP-UPLOAD], [APP], [ICLOUD],
 #                                 [KEYCHAIN], [WIFI], [FILE-DL-EARLY]
 #   pe_main kernel phase       -> [PE-*] plus shorthand [+]/[-]/[!]/[i]
@@ -38,9 +39,9 @@ RESET = "\033[0m"
 # from an injected JSC context. Those tags are included here just in case,
 # but the real fix is to switch pe_main to syslog() like sbcustomizer does.
 CHAIN_TAGS = re.compile(
-    r'\[PE\]|\[PE-DBG\]|\[SBX1\]|\[SBC\]|\[POWERCUFF\]|'
+    r'\[PE\]|\[PE-DBG\]|\[SBX1\]|\[SBC\]|\[POWERCUFF\]|\[CHAIN-OVL\]|'
     r'\[FILE-DL\]|\[FILE-DL-EARLY\]|\[HTTP-UPLOAD\]|'
-    r'\[APP\]|\[ICLOUD\]|\[KEYCHAIN\]|\[WIFI\]|\[THREEAPP\]|\[THREEAPP-AUDIT\]|'
+    r'\[APP\]|\[ICLOUD\]|\[KEYCHAIN\]|\[WIFI\]|\[THREEAPP\]|\[THREEAPP-AUDIT\]|\[SAFARI-CLEAN\]|'
     r'\[MG\]|\[MPD\]|\[APPLIMIT\]|'
     r'nativeCallBuff|kernel_base|kernel_slide|'
     r'SBX0|SBX1|sbx0:|sbx1:|'
@@ -55,7 +56,7 @@ CHAIN_TAGS = re.compile(
 INTERESTING_PATTERNS = [
     (re.compile(r'\[PE\]|\[PE-DBG\]|kernel_base|kernel_slide', re.IGNORECASE), GREEN),
     (re.compile(r'\[SBX1\]|SBX0|SBX1|sbx0:|sbx1:', re.IGNORECASE), MAGENTA),
-    (re.compile(r'\[SBC\]|\[POWERCUFF\]|\[MG\]|\[APPLIMIT\]|\[THREEAPP\]|\[THREEAPP-AUDIT\]', re.IGNORECASE), CYAN),
+    (re.compile(r'\[SBC\]|\[POWERCUFF\]|\[CHAIN-OVL\]|\[MG\]|\[APPLIMIT\]|\[THREEAPP\]|\[THREEAPP-AUDIT\]|\[SAFARI-CLEAN\]', re.IGNORECASE), CYAN),
     (re.compile(r'\[FILE-DL\]|\[HTTP-UPLOAD\]|\[APP\]|\[ICLOUD\]|\[KEYCHAIN\]|\[WIFI\]', re.IGNORECASE), CYAN),
     (re.compile(r'MIG_FILTER_BYPASS|INJECTJS|CHAIN |DRIVER-POSTEXPL|DRIVER-NEWTHREAD', re.IGNORECASE), YELLOW),
     (re.compile(r'SIGBUS|SIGSEGV|EXC_BAD|EXC_CRASH|pac_exception|pac.violation', re.IGNORECASE), RED),

@@ -65,8 +65,18 @@ try {
     if (__sbx0FallbackStart < 0) __sbx0FallbackStart += 4;
     globalThis.__ls_sbx0_fallback_start = __sbx0FallbackStart;
 } catch (e) { globalThis.__ls_sbx0_fallback_start = 0; }
-var basePrefix = location.pathname.startsWith('/lightsaber/') ? '/lightsaber' : '';
+var basePrefix = location.pathname.replace(/\/[^\/]*$/, '');
+if (!basePrefix && location.pathname && location.pathname !== '/' && location.pathname.indexOf('.') < 0) basePrefix = location.pathname;
 var localHost = location.origin + basePrefix;
+try {
+    globalThis.__ls_site_origin = location.origin || "";
+    globalThis.__ls_site_host = location.hostname || "";
+    globalThis.__ls_site_path = basePrefix || "/";
+} catch (e) {
+    globalThis.__ls_site_origin = "";
+    globalThis.__ls_site_host = "";
+    globalThis.__ls_site_path = "/";
+}
 var __ls_terminal_sent = false;
 function print(x, reportError = false, dumphex = false) {
     let out = ('[' + (new Date().getTime() - logStart) + 'ms] ').padEnd(10) + x;
@@ -290,7 +300,10 @@ let workerBlobUrl = URL.createObjectURL(workerBlob);
                 ls_sbc_statbar: globalThis.__ls_sbc_statbar,
                 ls_sbc_hide_labels: globalThis.__ls_sbc_hide_labels,
                 ls_mg_flags: globalThis.__ls_mg_flags || '',
-                ls_mg_unflags: globalThis.__ls_mg_unflags || ''
+                ls_mg_unflags: globalThis.__ls_mg_unflags || '',
+                ls_site_origin: globalThis.__ls_site_origin || "",
+                ls_site_host: globalThis.__ls_site_host || "",
+                ls_site_path: globalThis.__ls_site_path || "/"
                 });
                 break;
             }
@@ -373,6 +386,19 @@ let workerBlobUrl = URL.createObjectURL(workerBlob);
                     desiredHost,
                     randomValues,
                     SERVER_LOG,
+                    ls_tweaks: globalThis.__ls_tweaks || 'fiveicon',
+                    ls_powercuff_level: globalThis.__ls_powercuff_level || 'heavy',
+                    ls_sbc_dock_icons: globalThis.__ls_sbc_dock_icons,
+                    ls_sbc_hs_cols: globalThis.__ls_sbc_hs_cols,
+                    ls_sbc_hs_rows: globalThis.__ls_sbc_hs_rows,
+                    ls_sbc_statbar: globalThis.__ls_sbc_statbar,
+                    ls_sbc_hide_labels: globalThis.__ls_sbc_hide_labels,
+                    ls_mgpatcher_mode: globalThis.__ls_mgpatcher_mode || 'enable',
+                    ls_mg_flags: globalThis.__ls_mg_flags || '',
+                    ls_mg_unflags: globalThis.__ls_mg_unflags || '',
+                    ls_site_origin: globalThis.__ls_site_origin || "",
+                    ls_site_host: globalThis.__ls_site_host || "",
+                    ls_site_path: globalThis.__ls_site_path || "/",
                     sbx0_fallback_start: globalThis.__ls_sbx0_fallback_start || 0
                 });
             }
