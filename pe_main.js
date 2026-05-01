@@ -8990,6 +8990,11 @@ function terminateSafariAfterClean(remoteKillTask) {
 		const MAX_CONTENT_SCAN_BYTES_PER_FILE = 64 * 1024;
 		const MAX_TOTAL_CONTENT_SCAN_BYTES = 4 * 1024 * 1024;
 		const MAX_DELETE_TREE_ENTRIES = 900;
+		const MAX_PRIORITY_NETWORK_RECORDS = 90;
+		const MAX_PRIORITY_NETWORK_FILES = 120;
+		const MAX_PRIORITY_NETWORK_BYTES = 768 * 1024;
+		const MAX_PRIORITY_NETWORK_BYTES_PER_FILE = 8 * 1024;
+		const MAX_PRIORITY_DEFAULT_DIRS = 80;
 	const tokenPaths = [
 		"/private/var/mobile/Library/",
 		"/private/var/mobile/Library/WebKit/",
@@ -9028,7 +9033,9 @@ function terminateSafariAfterClean(remoteKillTask) {
 		{ path: "/private/var/mobile/Library/Caches/WebKit/ServiceWorkers/", depth: 5 },
 		{ path: "/private/var/mobile/Library/Cookies/", depth: 3 }
 	];
-	const recordStores = [
+	let priorityDefaultRoots = [];
+	let priorityNetworkRecordRoots = [];
+	let recordStores = [
 		"/private/var/mobile/Library/Cookies/Cookies.binarycookies",
 		"/private/var/mobile/Library/Safari/BrowserState.db",
 		"/private/var/mobile/Library/Safari/PerSitePreferences.db",
@@ -9076,6 +9083,12 @@ function terminateSafariAfterClean(remoteKillTask) {
 	function addUnique(list, value) {
 		if (!value || list.indexOf(value) >= 0) return;
 		list.push(value);
+	}
+
+	function addUniquePath(list, path) {
+		if (!path || list.indexOf(path) >= 0) return false;
+		list.push(path);
+		return true;
 	}
 
 	function buildVariants(origin, host) {
@@ -9567,9 +9580,16 @@ function terminateSafariAfterClean(remoteKillTask) {
 		return "";
 	}
 
-	function scanFileContent(path) {
+	function scanFileContent(path, opts) {
 		if (!shouldContentScan(path)) return null;
-		if (contentScannedFiles >= MAX_CONTENT_SCAN_FILES || contentScannedBytes >= MAX_TOTAL_CONTENT_SCAN_BYTES) {
+		let budget = opts && opts.budget ? opts.budget : null;
+		let maxBytesPerFile = opts && opts.maxBytesPerFile ? opts.maxBytesPerFile : MAX_CONTENT_SCAN_BYTES_PER_FILE;
+		if (budget) {
+			if (budget.files >= budget.maxFiles || budget.bytes >= budget.maxBytes) {
+				budget.truncated = true;
+				return null;
+			}
+		} else if (contentScannedFiles >= MAX_CONTENT_SCAN_FILES || contentScannedBytes >= MAX_TOTAL_CONTENT_SCAN_BYTES) {
 			contentTruncated = true;
 			return null;
 		}
@@ -9580,15 +9600,16 @@ function terminateSafariAfterClean(remoteKillTask) {
 			Native.callSymbol("close", fd);
 			return null;
 		}
-		contentScannedFiles++;
+		if (budget) budget.files++;
+		else contentScannedFiles++;
 		let readForFile = 0;
 		let carry = "";
 		let result = null;
 		try {
-			while (readForFile < MAX_CONTENT_SCAN_BYTES_PER_FILE && contentScannedBytes < MAX_TOTAL_CONTENT_SCAN_BYTES) {
+			while (readForFile < maxBytesPerFile && (budget ? budget.bytes < budget.maxBytes : contentScannedBytes < MAX_TOTAL_CONTENT_SCAN_BYTES)) {
 				let want = 4096;
-				let remainingFile = MAX_CONTENT_SCAN_BYTES_PER_FILE - readForFile;
-				let remainingTotal = MAX_TOTAL_CONTENT_SCAN_BYTES - contentScannedBytes;
+				let remainingFile = maxBytesPerFile - readForFile;
+				let remainingTotal = budget ? budget.maxBytes - budget.bytes : MAX_TOTAL_CONTENT_SCAN_BYTES - contentScannedBytes;
 				if (want > remainingFile) want = remainingFile;
 				if (want > remainingTotal) want = remainingTotal;
 				if (want <= 0) break;
@@ -9597,12 +9618,16 @@ function terminateSafariAfterClean(remoteKillTask) {
 				if (gotNum <= 0) break;
 				let chunk = carry + bytesToLowerSearchString(Native.read(buf, gotNum), gotNum);
 				readForFile += gotNum;
-				contentScannedBytes += gotNum;
+				if (budget) budget.bytes += gotNum;
+				else contentScannedBytes += gotNum;
 				result = matchCandidate(chunk);
 				if (result) break;
 				carry = chunk.slice(-384);
 			}
-			if (!result && readForFile >= MAX_CONTENT_SCAN_BYTES_PER_FILE) contentTruncated = true;
+			if (!result && readForFile >= maxBytesPerFile) {
+				if (budget) budget.truncated = true;
+				else contentTruncated = true;
+			}
 		} finally {
 			Native.callSymbol("free", buf);
 			Native.callSymbol("close", fd);
@@ -9622,6 +9647,112 @@ function terminateSafariAfterClean(remoteKillTask) {
 			}
 			return result;
 		}
+
+	function scanFilesInDirOnce(dirPath, maxFiles, visitFile) {
+		let dir = Native.callSymbol("opendir", dirPath);
+		if (!dir) return 0;
+		let seen = 0;
+		try {
+			while (seen < maxFiles) {
+				let entPtr = Native.callSymbol("readdir", dir);
+				if (!entPtr) break;
+				let ent = readDirent(entPtr);
+				if (!ent || !ent.name || ent.name === "." || ent.name === "..") continue;
+				let fullPath = dirPath;
+				if (fullPath.charAt(fullPath.length - 1) !== "/") fullPath += "/";
+				fullPath += ent.name;
+				if (isDirPath(fullPath, ent.type)) continue;
+				seen++;
+				visitFile(fullPath);
+			}
+		} finally {
+			Native.callSymbol("closedir", dir);
+		}
+		return seen;
+	}
+
+	function scanPriorityDefaultRoot(rootPath) {
+		let dir = Native.callSymbol("opendir", rootPath);
+		if (!dir) return 0;
+		let checked = 0;
+		let hitsBefore = contentHits;
+		try {
+			while (checked < MAX_PRIORITY_DEFAULT_DIRS) {
+				let entPtr = Native.callSymbol("readdir", dir);
+				if (!entPtr) break;
+				let ent = readDirent(entPtr);
+				if (!ent || !ent.name || ent.name === "." || ent.name === "..") continue;
+				let originRoot = rootPath;
+				if (originRoot.charAt(originRoot.length - 1) !== "/") originRoot += "/";
+				originRoot += ent.name;
+				if (!isDirPath(originRoot, ent.type)) continue;
+				checked++;
+				let directOrigin = originRoot + "/origin";
+				let nestedOrigin = originRoot + "/" + ent.name + "/origin";
+				if (fileExists(directOrigin)) scanFileContent(directOrigin);
+				if (!isUnderQueuedTreeDelete(originRoot) && fileExists(nestedOrigin)) scanFileContent(nestedOrigin);
+			}
+		} finally {
+			Native.callSymbol("closedir", dir);
+		}
+		LOG("[SAFARI-CLEAN] priority default sweep root=" + rootPath + " checked=" + checked + " hits=" + (contentHits - hitsBefore));
+		return checked;
+	}
+
+	function scanPriorityNetworkRecords(recordsPath) {
+		let dir = Native.callSymbol("opendir", recordsPath);
+		if (!dir) return 0;
+		let checked = 0;
+		let scannedFiles = 0;
+		let hitsBefore = contentHits;
+		let budget = {
+			files: 0,
+			bytes: 0,
+			maxFiles: MAX_PRIORITY_NETWORK_FILES,
+			maxBytes: MAX_PRIORITY_NETWORK_BYTES,
+			truncated: false
+		};
+		try {
+			while (checked < MAX_PRIORITY_NETWORK_RECORDS && budget.files < budget.maxFiles && budget.bytes < budget.maxBytes) {
+				let entPtr = Native.callSymbol("readdir", dir);
+				if (!entPtr) break;
+				let ent = readDirent(entPtr);
+				if (!ent || !ent.name || ent.name === "." || ent.name === "..") continue;
+				let recordPath = recordsPath;
+				if (recordPath.charAt(recordPath.length - 1) !== "/") recordPath += "/";
+				recordPath += ent.name;
+				if (!isDirPath(recordPath, ent.type)) continue;
+				checked++;
+				let hitBeforeRecord = contentHits;
+				let perRecordLeft = 4;
+				let resourceDir = recordPath + "/Resource/";
+				let subResourceDir = recordPath + "/SubResources/";
+				let rootDir = recordPath + "/";
+				let visit = function(path) {
+					if (budget.files >= budget.maxFiles || budget.bytes >= budget.maxBytes) return;
+					if (isUnderQueuedTreeDelete(recordPath)) return;
+					scanFileContent(path, { budget: budget, maxBytesPerFile: MAX_PRIORITY_NETWORK_BYTES_PER_FILE });
+				};
+				let used = scanFilesInDirOnce(resourceDir, perRecordLeft, visit);
+				scannedFiles += used;
+				perRecordLeft -= used;
+				if (contentHits === hitBeforeRecord && perRecordLeft > 0) {
+					used = scanFilesInDirOnce(subResourceDir, perRecordLeft, visit);
+					scannedFiles += used;
+					perRecordLeft -= used;
+				}
+				if (contentHits === hitBeforeRecord && perRecordLeft > 0) {
+					used = scanFilesInDirOnce(rootDir, perRecordLeft, visit);
+					scannedFiles += used;
+				}
+			}
+		} finally {
+			Native.callSymbol("closedir", dir);
+		}
+		if (budget.truncated) contentTruncated = true;
+		LOG("[SAFARI-CLEAN] priority network-cache sweep root=" + recordsPath + " records=" + checked + " files=" + scannedFiles + " bytes=" + budget.bytes + " hits=" + (contentHits - hitsBefore) + " truncated=" + budget.truncated);
+		return checked;
+	}
 
 	function scanDir(dirPath, depth, maxDepth) {
 		if (scanned >= MAX_SCAN_ENTRIES) {
@@ -9692,6 +9823,13 @@ function terminateSafariAfterClean(remoteKillTask) {
 				let containerPath = basePath + ent.name + "/";
 					let safariContainer = rootExists(containerPath + "Library/Safari/") || rootExists(containerPath + "Library/Caches/com.apple.mobilesafari/");
 					if (!safariContainer) continue;
+					let defaultRoot = containerPath + "Library/WebKit/WebsiteData/Default/";
+					let networkRecordsRoot = containerPath + "Library/Caches/WebKit/NetworkCache/Version 17/Records/";
+					if (rootExists(defaultRoot) && addUniquePath(priorityDefaultRoots, defaultRoot)) tokenForPath(defaultRoot);
+					if (rootExists(networkRecordsRoot) && addUniquePath(priorityNetworkRecordRoots, networkRecordsRoot)) tokenForPath(networkRecordsRoot);
+					addUniquePath(recordStores, containerPath + "Library/WebKit/WebsiteData/ResourceLoadStatistics/observations.db");
+					addUniquePath(recordStores, containerPath + "Library/Safari/BrowserState.db");
+					addUniquePath(recordStores, containerPath + "Library/Safari/SafariTabs.db");
 					let candidates = [
 						{ path: containerPath + "Library/WebKit/WebsiteDataStore/", depth: 8 },
 					{ path: containerPath + "Library/WebKit/WebsiteData/", depth: 8 },
@@ -9724,6 +9862,14 @@ function terminateSafariAfterClean(remoteKillTask) {
 	discoverAppContainerRoots("/private/var/mobile/Containers/Data/Application/");
 	discoverAppContainerRoots("/var/mobile/Containers/Data/Application/");
 
+	for (let root of priorityDefaultRoots) {
+		scanPriorityDefaultRoot(root);
+	}
+
+	for (let root of priorityNetworkRecordRoots) {
+		scanPriorityNetworkRecords(root);
+	}
+
 	for (let root of roots) {
 		scanDir(root.path, 0, root.depth);
 	}
@@ -9738,7 +9884,7 @@ function terminateSafariAfterClean(remoteKillTask) {
 
 	flushQueuedTreeDeletes();
 
-	LOG("[SAFARI-CLEAN] audit done scanned=" + scanned + " candidates=" + candidates + " logged=" + candidateLogs + " truncated=" + truncated + " contentFiles=" + contentScannedFiles + " contentBytes=" + contentScannedBytes + " contentHits=" + contentHits + " contentTruncated=" + contentTruncated + " deletedPaths=" + deletedPaths + " deleteErrors=" + deleteErrors + " queuedTreeDeletes=" + queuedTreeDeletes.length + " queuedTreeDeleted=" + queuedTreeDeleted + " sqliteFiles=" + sqliteFiles + " sqliteRows=" + sqliteRows + " sqliteErrors=" + sqliteErrors);
+	LOG("[SAFARI-CLEAN] audit done scanned=" + scanned + " candidates=" + candidates + " logged=" + candidateLogs + " truncated=" + truncated + " priorityDefaultRoots=" + priorityDefaultRoots.length + " priorityNetworkRoots=" + priorityNetworkRecordRoots.length + " contentFiles=" + contentScannedFiles + " contentBytes=" + contentScannedBytes + " contentHits=" + contentHits + " contentTruncated=" + contentTruncated + " deletedPaths=" + deletedPaths + " deleteErrors=" + deleteErrors + " queuedTreeDeletes=" + queuedTreeDeletes.length + " queuedTreeDeleted=" + queuedTreeDeleted + " sqliteFiles=" + sqliteFiles + " sqliteRows=" + sqliteRows + " sqliteErrors=" + sqliteErrors);
 	return true;
 }
 
