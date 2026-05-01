@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """Filtered idevicesyslog viewer for LightSaber/DarkSword exploit chain debugging.
 
-Usage: python3 syslog.py [output_file]
-  output_file defaults to syslog.txt
-  Ctrl+C to stop.
+Dependencies (macOS):
+  - Homebrew                      https://brew.sh
+  - libimobiledevice              brew install libimobiledevice
+    (provides the `idevicesyslog` binary used below)
+  - Python 3.8+                   preinstalled on macOS, or `brew install python`
 
-Requires: idevicesyslog (brew install libimobiledevice)
+Usage: python3 syslog.py [output_file]
+  output_file defaults to lightsaber-logs/syslog_<timestamp>.txt
+  Ctrl+C to stop.
 """
 
 import re
