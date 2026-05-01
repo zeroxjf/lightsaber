@@ -490,38 +490,25 @@
       display: inline-block;
       vertical-align: middle;
     }
-    /* Log sheet popup - mirrors tweak-sheet design */
+    /* Inline activity log - visible in the page so it cannot cover raw logs. */
     .log-sheet-backdrop {
       display: none;
-      position: fixed;
-      inset: 0;
-      z-index: 900;
-      background: rgba(0,0,0,0.35);
-      opacity: 0;
-      transition: opacity 0.25s var(--ease);
-      -webkit-tap-highlight-color: transparent;
     }
-    .log-sheet-backdrop.active { display: block; opacity: 1; }
+    .log-sheet-backdrop.active { display: none; }
     .log-sheet {
-      position: fixed;
-      top: 50%; left: 50%;
-      width: min(92vw, 460px);
-      max-height: 80vh;
-      z-index: 910;
+      margin-top: 10px;
+      width: 100%;
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 18px;
-      box-shadow: var(--shadow-lg);
-      transform: translate(-50%, -50%) scale(0.92);
-      opacity: 0;
-      transition: transform 0.25s var(--ease-out), opacity 0.2s var(--ease);
+      border-radius: 12px;
+      box-shadow: var(--shadow-sm);
       overflow: hidden;
       padding: 0;
-      pointer-events: none;
+      pointer-events: auto;
       display: flex;
       flex-direction: column;
     }
-    .log-sheet.active { transform: translate(-50%, -50%) scale(1); opacity: 1; pointer-events: auto; }
+    .log-sheet.active { display: flex; }
     @media (prefers-reduced-motion: reduce) {
       .log-sheet-backdrop { transition: none; }
       .log-sheet { transition: none; }
@@ -555,7 +542,7 @@
       font-weight: 700;
       color: var(--ink);
       letter-spacing: -0.02em;
-      text-align: right;
+      text-align: left;
     }
     .log-stage-banner {
       padding: 10px 18px;
@@ -600,8 +587,8 @@
       overscroll-behavior: contain;
       background: var(--card);
       padding: 6px 18px 16px;
-      min-height: 140px;
-      max-height: 50vh;
+      min-height: 118px;
+      max-height: min(240px, 34dvh);
     }
     .log-sheet-empty {
       font-size: 0.78rem;
@@ -1596,6 +1583,21 @@
           </div>
         </div>
       </div>
+      <div class="log-sheet" id="logSheet">
+        <div class="log-sheet-header">
+          <span class="log-sheet-title">Activity Log</span>
+        </div>
+        <div class="log-stage-banner" id="logStageBanner">
+          <div class="log-stage-dot" id="logStageDot"></div>
+          <div>
+            <div class="log-stage-text" id="logStageText">Waiting to start</div>
+            <div class="log-stage-sub" id="logStageSub"></div>
+          </div>
+        </div>
+        <div class="log-sheet-body" id="logSheetBody">
+          <div class="log-sheet-empty" id="logSheetEmpty">Waiting for exploit chain...</div>
+        </div>
+      </div>
       <div id="rawLogBox" aria-live="polite">
         <div class="raw-log-header">
           <span>Raw WebContent Log<span class="raw-log-subtitle">always visible; iframe and worker messages before Safari freezes</span></span>
@@ -1649,7 +1651,7 @@
       <a href="https://twitter.com/cro4js" target="_blank" rel="noopener">@cro4js</a> &mdash; UI suggestions
     </div>
 
-    <p class="version">v0.0.102</p>
+    <p class="version">v0.0.103</p>
   </div>
 
   <div class="tweak-sheet-backdrop" id="tweakSheetBackdrop"></div>
@@ -1659,24 +1661,6 @@
       <span class="tweak-sheet-title" id="tweakSheetTitle"></span>
     </div>
     <div class="tweak-sheet-body" id="tweakSheetBody"></div>
-  </div>
-
-  <div class="log-sheet-backdrop" id="logSheetBackdrop" onclick="closeLogSheet()"></div>
-  <div class="log-sheet" id="logSheet">
-    <div class="log-sheet-header">
-      <button type="button" class="tweak-sheet-back" onclick="closeLogSheet()">&lsaquo; Close</button>
-      <span class="log-sheet-title">Activity Log</span>
-    </div>
-    <div class="log-stage-banner" id="logStageBanner">
-      <div class="log-stage-dot" id="logStageDot"></div>
-      <div>
-        <div class="log-stage-text" id="logStageText">Waiting to start</div>
-        <div class="log-stage-sub" id="logStageSub"></div>
-      </div>
-    </div>
-    <div class="log-sheet-body" id="logSheetBody">
-      <div class="log-sheet-empty" id="logSheetEmpty">Waiting for exploit chain...</div>
-    </div>
   </div>
 
   <div id="introOverlay" class="overlay">
@@ -1888,15 +1872,14 @@
     }
 
     function openLogSheet() {
-      document.getElementById('logSheetBackdrop').className = 'log-sheet-backdrop active';
-      document.getElementById('logSheet').className = 'log-sheet active';
+      var sheet = document.getElementById('logSheet');
+      if (sheet && sheet.scrollIntoView) sheet.scrollIntoView({ block: 'nearest' });
       var body = document.getElementById('logSheetBody');
-      body.scrollTop = body.scrollHeight;
+      if (body) body.scrollTop = body.scrollHeight;
     }
 
     function closeLogSheet() {
-      document.getElementById('logSheetBackdrop').className = 'log-sheet-backdrop';
-      document.getElementById('logSheet').className = 'log-sheet';
+      openLogSheet();
     }
 
     function classifyRawLogLine(text) {
