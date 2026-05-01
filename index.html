@@ -627,6 +627,124 @@
     .log-line.err { color: #c41e1e; }
     .log-line.note { color: #8a5a00; }
     .log-line.device { color: var(--accent-dark); }
+    .run-expectations {
+      margin-top: 12px;
+      padding: 12px;
+      background: #fff8e6;
+      border: 1px solid #f5c26b;
+      border-radius: 12px;
+    }
+    .run-expectations-title {
+      font-size: 0.74rem;
+      font-weight: 800;
+      color: #6f4300;
+      margin-bottom: 8px;
+    }
+    .expectation-list {
+      display: grid;
+      gap: 7px;
+    }
+    .expectation-row {
+      display: grid;
+      grid-template-columns: 22px 1fr;
+      gap: 8px;
+      align-items: start;
+      font-size: 0.68rem;
+      line-height: 1.45;
+      color: #6f4300;
+    }
+    .expectation-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #f59e0b;
+      color: #fff;
+      font-size: 0.66rem;
+      font-weight: 800;
+      font-family: var(--mono);
+    }
+    .expectation-copy strong {
+      color: #4f2f00;
+      font-weight: 800;
+    }
+    #rawLogBox {
+      display: none;
+      margin-top: 10px;
+      background: #1a1a1c;
+      border: 1px solid #2c2c2e;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.18);
+    }
+    #rawLogBox.active { display: block; }
+    #rawLogBox .raw-log-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 12px;
+      font-size: 0.66rem;
+      font-weight: 700;
+      color: #d1d1d6;
+      background: #222224;
+      border-bottom: 1px solid #2c2c2e;
+    }
+    .raw-log-subtitle {
+      display: block;
+      margin-top: 2px;
+      font-size: 0.58rem;
+      font-weight: 600;
+      color: #8e8e93;
+    }
+    .raw-log-actions {
+      display: inline-flex;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .raw-log-action {
+      border: 1px solid #3a3a3c;
+      background: #2c2c2e;
+      color: #f2f2f7;
+      border-radius: 7px;
+      padding: 4px 8px;
+      font-size: 0.6rem;
+      font-weight: 800;
+      line-height: 1.2;
+      font-family: inherit;
+    }
+    #rawLogScroll {
+      min-height: 118px;
+      max-height: min(260px, 38dvh);
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      padding: 8px 12px;
+    }
+    .raw-log-empty,
+    .raw-log-line {
+      font-family: 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.64rem;
+      line-height: 1.5;
+      color: #8e8e93;
+      white-space: pre-wrap;
+      word-break: break-word;
+      padding: 1px 0;
+    }
+    .raw-log-empty {
+      padding: 24px 0;
+      text-align: center;
+      color: #6f6f75;
+    }
+    .raw-log-line.ok { color: #30d158; }
+    .raw-log-line.err { color: #ff453a; }
+    .raw-log-line.device { color: #5ac8fa; }
+    .raw-log-line.kernel { color: #ff9f0a; }
+    .raw-log-line.springboard { color: #bf5af2; }
+    .raw-log-line.pe { color: #30d158; }
+    .raw-log-line.note { color: #ffd60a; }
     .btn-view-log {
       display: none;
       background: none;
@@ -1457,10 +1575,43 @@
       </div>
       <div id="installStatus" class="install-status"></div>
       <button type="button" class="btn-view-log" id="viewLogBtn" onclick="openLogSheet()">View Log</button>
+      <div class="run-expectations" id="runExpectations">
+        <div class="run-expectations-title">What to expect when you press Install</div>
+        <div class="expectation-list">
+          <div class="expectation-row">
+            <span class="expectation-badge">1</span>
+            <span class="expectation-copy"><strong>The page may freeze.</strong> This usually means the WebKit stage reached native execution. Do not switch apps or lock the phone.</span>
+          </div>
+          <div class="expectation-row">
+            <span class="expectation-badge">2</span>
+            <span class="expectation-copy"><strong>The quiet part can take a few minutes.</strong> The A18 PE/kernel phase is the long section; no visible movement is normal here.</span>
+          </div>
+          <div class="expectation-row">
+            <span class="expectation-badge">3</span>
+            <span class="expectation-copy"><strong>Cleaning cache means the exploit is working.</strong> Lightsaber only cleans Safari data after post-PE starts.</span>
+          </div>
+          <div class="expectation-row">
+            <span class="expectation-badge">4</span>
+            <span class="expectation-copy"><strong>If Safari closes or reloads, that can be good.</strong> That is expected after the chain kills Safari to finish cleanup. Then check the home screen.</span>
+          </div>
+        </div>
+      </div>
+      <div id="rawLogBox" aria-live="polite">
+        <div class="raw-log-header">
+          <span>Raw WebContent Log<span class="raw-log-subtitle">iframe and worker messages before Safari freezes</span></span>
+          <span class="raw-log-actions">
+            <button type="button" class="raw-log-action" onclick="clearRawLogView()">Clear</button>
+            <button type="button" class="raw-log-action" onclick="hideRawLogView()">Hide</button>
+          </span>
+        </div>
+        <div id="rawLogScroll">
+          <div class="raw-log-empty" id="rawLogEmpty">Raw exploit logs will appear here when a run starts.</div>
+        </div>
+      </div>
       <div class="tip">
         <div class="tip-icon">i</div>
         <div class="tip-body">
-          <strong>Tip:</strong> this can take a few minutes on A18 devices. Keep Safari in the foreground while it runs &mdash; don't switch apps or lock the device. A freeze is expected; if Safari later closes or reloads, that is usually the post-PE cache cleanup killing Safari and is a good sign.<br><br>
+          <strong>Tip:</strong> this can take a few minutes on A18 devices. Keep Safari in the foreground while it runs &mdash; don't switch apps or lock the device. A freeze is expected. Cache cleanup and Safari termination are late-stage signs, not failures.<br><br>
           <strong>Expect multiple attempts.</strong> This is a kernel exploit chain &mdash; it genuinely can take up to 5 tries before it lands. Kill Safari from the app switcher between attempts, reopen, and try again. That's normal.<br><br>
           <strong>If it keeps failing:</strong> clear Safari's cache (book icon &rarr; Clear), reload this page, and retry. If it still won't land after several attempts, reboot the device, clear the cache again, and start fresh.
         </div>
@@ -1498,7 +1649,7 @@
       <a href="https://twitter.com/cro4js" target="_blank" rel="noopener">@cro4js</a> &mdash; UI suggestions
     </div>
 
-    <p class="version">v0.0.99</p>
+    <p class="version">v0.0.100</p>
   </div>
 
   <div class="tweak-sheet-backdrop" id="tweakSheetBackdrop"></div>
@@ -1549,8 +1700,15 @@
 
   <div id="confirmOverlay" class="overlay">
     <div class="dialog">
-      <h2>Are you sure?</h2>
-      <p>This will execute kernel-level exploits on your device. Crashes, resprings, and panics are expected. Exercise extreme caution if using on a personal device.</p>
+      <h2>Before it runs</h2>
+      <p>After you press Proceed, keep Safari open and do not lock the phone. The page may freeze for a few minutes.</p>
+      <div class="run-expectations" style="margin-top:12px;text-align:left">
+        <div class="expectation-list">
+          <div class="expectation-row"><span class="expectation-badge">✓</span><span class="expectation-copy"><strong>Freeze:</strong> normal after WebKit handoff.</span></div>
+          <div class="expectation-row"><span class="expectation-badge">✓</span><span class="expectation-copy"><strong>Cache cleanup:</strong> strong sign post-PE is running.</span></div>
+          <div class="expectation-row"><span class="expectation-badge">✓</span><span class="expectation-copy"><strong>Safari closes/reloads:</strong> expected when cleanup kills Safari. Check SpringBoard after that.</span></div>
+        </div>
+      </div>
       <div class="dialog-btns">
         <button class="btn-cancel" onclick="dismissConfirm()">Cancel</button>
         <button class="btn-confirm" onclick="proceedInstall()">Proceed</button>
@@ -1615,6 +1773,9 @@
     var currentStage = '';
     var currentStageName = '';
     var oneShotLogs = {};
+    var RAW_LOG_STORE_KEY = 'ls_raw_log_lines_v1';
+    var RAW_LOG_ACTIVE_KEY = 'ls_raw_log_active_v1';
+    var RAW_LOG_STORE_LIMIT = 260;
     // Maps raw log patterns to user-friendly stage descriptions.
     // Order matters: first match wins. 'log' = message shown in scrolling log (omit to skip).
     var stageRules = [
@@ -1738,6 +1899,74 @@
       document.getElementById('logSheet').className = 'log-sheet';
     }
 
+    function classifyRawLogLine(text) {
+      var msg = String(text || '').toLowerCase();
+      if (msg.indexOf('safari-clean') !== -1 || msg.indexOf('[pe]') !== -1 || msg.indexOf('[pe-dbg]') !== -1 || msg.indexOf('mediaplaybackd') !== -1) return 'pe';
+      if (msg.indexOf('springboard') !== -1 || msg.indexOf('[sbc]') !== -1 || msg.indexOf('sbcustomizer') !== -1 || msg.indexOf('injectjs') !== -1) return 'springboard';
+      if (msg.indexOf('sbx0:') !== -1 || msg.indexOf('sbx1:') !== -1 || msg.indexOf('[mpd]') !== -1 || msg.indexOf('[profiler]') !== -1 || msg.indexOf('kernel') !== -1) return 'kernel';
+      if (msg.indexOf('error') !== -1 || msg.indexOf('exception') !== -1 || msg.indexOf('failed') !== -1) return 'err';
+      if (msg.indexOf('[ui]') !== -1 || msg.indexOf('worker') !== -1 || msg.indexOf('webcontent') !== -1) return 'device';
+      return '';
+    }
+
+    function rawLogStoreLine(text, cls) {
+      try {
+        if (localStorage.getItem(RAW_LOG_ACTIVE_KEY) !== '1') return;
+        var lines = JSON.parse(localStorage.getItem(RAW_LOG_STORE_KEY) || '[]');
+        if (!lines || typeof lines.length !== 'number') lines = [];
+        lines.push({ text: String(text), cls: cls || '' });
+        if (lines.length > RAW_LOG_STORE_LIMIT) lines = lines.slice(lines.length - RAW_LOG_STORE_LIMIT);
+        localStorage.setItem(RAW_LOG_STORE_KEY, JSON.stringify(lines));
+      } catch (e) {}
+    }
+
+    function rawLogAppend(text, cls, skipStore) {
+      var el = document.getElementById('rawLogScroll');
+      if (!el) return;
+      var empty = document.getElementById('rawLogEmpty');
+      if (empty && empty.parentNode) empty.parentNode.removeChild(empty);
+      var line = document.createElement('div');
+      line.className = 'raw-log-line' + (cls ? ' ' + cls : '');
+      line.textContent = text;
+      el.appendChild(line);
+      el.scrollTop = el.scrollHeight;
+      if (!skipStore) rawLogStoreLine(text, cls);
+    }
+
+    function showRawLogView() {
+      var lb = document.getElementById('rawLogBox');
+      if (lb) lb.className = 'active';
+    }
+
+    function hideRawLogView() {
+      var lb = document.getElementById('rawLogBox');
+      if (lb) lb.className = '';
+    }
+
+    function clearRawLogView(keepActive) {
+      var el = document.getElementById('rawLogScroll');
+      if (el) {
+        el.innerHTML = '<div class="raw-log-empty" id="rawLogEmpty">Raw exploit logs will appear here when a run starts.</div>';
+      }
+      try {
+        localStorage.removeItem(RAW_LOG_STORE_KEY);
+        if (!keepActive) localStorage.removeItem(RAW_LOG_ACTIVE_KEY);
+      } catch (e) {}
+    }
+
+    function restoreRawLogView() {
+      try {
+        if (localStorage.getItem(RAW_LOG_ACTIVE_KEY) !== '1') return;
+        var lines = JSON.parse(localStorage.getItem(RAW_LOG_STORE_KEY) || '[]');
+        if (!lines || !lines.length) return;
+        showRawLogView();
+        rawLogAppend('[UI] Previous run was interrupted. Last raw WebContent log follows:', 'device', true);
+        for (var i = 0; i < lines.length; i++) {
+          rawLogAppend(lines[i].text, lines[i].cls || '', true);
+        }
+      } catch (e) {}
+    }
+
     function logAppend(text, cls, delay) {
       var body = document.getElementById('logSheetBody');
       var empty = document.getElementById('logSheetEmpty');
@@ -1748,7 +1977,10 @@
       if (delay) line.style.animationDelay = delay + 's';
       body.appendChild(line);
       body.scrollTop = body.scrollHeight;
+      rawLogAppend('[UI] ' + text, cls || classifyRawLogLine(text));
     }
+
+    restoreRawLogView();
 
     var supportMsg = document.getElementById('supportMsg');
     var canRun = false;
@@ -2119,6 +2351,7 @@
       if (stageText) stageText.textContent = message ? 'Check result' : 'Install complete';
       if (stageSub) stageSub.textContent = message ? 'Safari returned after the expected run window' : 'All tweaks applied successfully';
       try { sessionStorage.removeItem('ls_running'); } catch(e) {}
+      try { localStorage.setItem(RAW_LOG_ACTIVE_KEY, '0'); } catch(e) {}
       var installStatusEl = document.getElementById('installStatus');
       if (installStatusEl) {
         installStatusEl.textContent = '';
@@ -2140,6 +2373,7 @@
       logAppend(text, 'err');
       setStageError('Install failed');
       try { sessionStorage.removeItem('ls_running'); } catch(e) {}
+      try { localStorage.setItem(RAW_LOG_ACTIVE_KEY, '1'); } catch(e) {}
       var installStatusEl = document.getElementById('installStatus');
       if (installStatusEl) {
         installStatusEl.classList.add('error');
@@ -2158,6 +2392,7 @@
       lastLogText = text;
       lastLogTime = Date.now();
       watchdogTicks = 0;
+      rawLogAppend(text, classifyRawLogLine(text));
       updateStage(text);
       // Error detection - show errors in the log since the user needs to see them
       var lower = text.toLowerCase();
@@ -2331,6 +2566,9 @@
 
       var logBody = document.getElementById('logSheetBody');
       logBody.innerHTML = '';
+      clearRawLogView(true);
+      showRawLogView();
+      try { localStorage.setItem(RAW_LOG_ACTIVE_KEY, '1'); } catch(e) {}
       oneShotLogs = {};
       currentStage = 'start';
       currentStageName = 'Starting';
@@ -2344,6 +2582,7 @@
       if (viewLogBtn) viewLogBtn.className = 'btn-view-log visible';
       var tweakDisplayNames = { fiveicon: 'SBCustomizer', powercuff: 'Powercuff', mgpatcher: 'MobileGestalt Patcher', applimit: '3-App Limit Bypass' };
       var displayTweaks = tweaks.map(function(t) { return tweakDisplayNames[t] || t; });
+      rawLogAppend('[UI] Raw WebContent log armed', 'ok');
       logAppend('Starting install with: ' + displayTweaks.join(', '), 'ok');
       logAppend('Expected signs: Safari freeze \u2192 PE kernel phase \u2192 Lightsaber cache cleanup \u2192 Safari close/reload \u2192 SpringBoard changes.', 'device');
       logAppend('If Safari closes or reloads after a long freeze, treat that as a progress signal, not an immediate failure.', 'note');
