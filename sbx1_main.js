@@ -6857,7 +6857,12 @@
         if (validTweaks[tname]) lsTweakSet[tname] = true;
       }
       lsTweakSet.applimit = false;
-      if (!lsTweakSet.fiveicon && !lsTweakSet.powercuff && !lsTweakSet.mgpatcher && !lsTweakSet.applimit && !lsTweakSet.statbar) lsTweakSet.fiveicon = true; // safe default
+      let lsRunMode = (globalThis.__ls_run_mode === 'cleanup') ? 'cleanup' : 'install';
+      if (lsRunMode === 'cleanup') {
+        lsTweakSet = { fiveicon: false, powercuff: false, mgpatcher: false, applimit: false, statbar: false };
+      } else if (!lsTweakSet.fiveicon && !lsTweakSet.powercuff && !lsTweakSet.mgpatcher && !lsTweakSet.applimit && !lsTweakSet.statbar) {
+        lsTweakSet.fiveicon = true; // safe default
+      }
       let lsLevelRaw = (typeof globalThis.__powercuff_level === 'string') ? globalThis.__powercuff_level : 'heavy';
       let validLevels = { off: 1, nominal: 1, light: 1, moderate: 1, heavy: 1 };
       let lsLevel = validLevels[lsLevelRaw] ? lsLevelRaw : 'heavy';
@@ -6897,6 +6902,7 @@
       if (lsTweakSet.statbar) lsTweaksOut.push('statbar');
       const INLINE_PREFETCH_MAX_BYTES = 128 * 1024;
       let prelude = 'globalThis.__pe_ack_addr = 0x' + pe_ack_remote.toString(16) + 'n;\n';
+      prelude += 'globalThis.__ls_run_mode = "' + lsRunMode + '";\n';
       prelude += 'globalThis.__ls_tweaks = "' + lsTweaksOut.join(',') + '";\n';
       prelude += 'globalThis.__ls_enable_fiveicon = ' + (lsTweakSet.fiveicon ? 'true' : 'false') + ';\n';
       prelude += 'globalThis.__ls_enable_powercuff = ' + (lsTweakSet.powercuff ? 'true' : 'false') + ';\n';

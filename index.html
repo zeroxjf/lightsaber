@@ -1800,6 +1800,7 @@
       <div class="install-zone">
         <button id="runBtn" class="btn btn-run" onclick="confirmInstall()">Install Queue</button>
         <div class="install-secondary-actions">
+          <button type="button" class="btn-clear-queue" id="cleanupStateBtn" onclick="confirmCleanupState()">Clean kernel state</button>
           <button type="button" class="btn btn-respring" id="respringBtn" onclick="runRespring()">Respring</button>
           <button type="button" class="btn-clear-queue" id="clearQueueBtn">Clear queue</button>
         </div>
@@ -2931,6 +2932,17 @@
       runExploit(sel.tweaks, sel.level, sel.sbc, sel.mg_flags, sel.mg_unflags);
     }
 
+    function confirmCleanupState() {
+      if (!canRun) return;
+      if (!confirm('Run cleanup-only mode now? This runs the chain far enough to get kernel R/W, restores any Lightsaber cleanup record, then stops before applying tweaks.')) return;
+      runCleanupState();
+    }
+
+    function runCleanupState() {
+      var defaults = { dock_icons: 4, hs_cols: 4, hs_rows: 6, hide_labels: 0, statbar_celsius: 0 };
+      runExploit([], 'nominal', defaults, '', '', 'cleanup');
+    }
+
     function showKillSafari() {
       var btn = document.getElementById('runBtn');
       if (btn && canRun) {
@@ -2944,16 +2956,18 @@
       document.getElementById('killSafariOverlay').className = 'overlay';
     }
 
-    function runExploit(tweaks, level, sbc, mg_flags, mg_unflags) {
+    function runExploit(tweaks, level, sbc, mg_flags, mg_unflags, mode) {
       if (!canRun) return;
-      if (!tweaks || tweaks.length === 0) tweaks = ['fiveicon'];
+      mode = (mode === 'cleanup') ? 'cleanup' : 'install';
+      if (mode !== 'cleanup' && (!tweaks || tweaks.length === 0)) tweaks = ['fiveicon'];
+      if (mode === 'cleanup') tweaks = [];
       level = level || 'heavy';
       sbc = sbc || { dock_icons: 4, hs_cols: 4, hs_rows: 6, hide_labels: 0, statbar_celsius: 0 };
       mg_flags = mg_flags || '';
       mg_unflags = mg_unflags || '';
       var installStatusEl = document.getElementById('installStatus');
       try {
-        if (sessionStorage.getItem('ls_running')) {
+        if (mode !== 'cleanup' && sessionStorage.getItem('ls_running')) {
           if (installStatusEl) {
             installStatusEl.className = 'install-status';
             installStatusEl.textContent = '';
@@ -2961,6 +2975,7 @@
           showKillSafari();
           return;
         }
+        if (mode === 'cleanup') sessionStorage.removeItem('ls_running');
       } catch(e) {}
       doneSignal = false;
       if (installStatusEl) {
@@ -2974,14 +2989,14 @@
         installStatusEl.innerHTML =
           '<span class="install-status-dot"></span>' +
           '<span class="install-status-body">' +
-            '<span class="install-status-title">Running exploit chain &mdash; about 1 minute</span>' +
+            '<span class="install-status-title">' + (mode === 'cleanup' ? 'Running cleanup chain &mdash; about 1 minute' : 'Running exploit chain &mdash; about 1 minute') + '</span>' +
             '<span class="install-status-meta">Page will freeze. Don’t switch apps or lock the phone.</span>' +
           '</span>';
       }
       var btn = document.getElementById('runBtn');
       if (btn) {
         btn.className = 'btn btn-disabled';
-        btn.textContent = 'Installing...';
+        btn.textContent = mode === 'cleanup' ? 'Cleaning...' : 'Installing...';
       }
       // Set the progress card SYNCHRONOUSLY before the iframe is created.
       // iOS Safari shares one WebContent process across the parent page and
@@ -3015,7 +3030,7 @@
       var tweakDisplayNames = { fiveicon: 'SBCustomizer', powercuff: 'Powercuff', mgpatcher: 'MobileGestalt Patcher', applimit: '3-App Limit Bypass' };
       var displayTweaks = tweaks.map(function(t) { return tweakDisplayNames[t] || t; });
       rawLogAppend('[UI] WebContent log armed', 'ok');
-      logAppend('Starting install with: ' + displayTweaks.join(', '), 'ok');
+      logAppend(mode === 'cleanup' ? 'Starting cleanup-only run' : 'Starting install with: ' + displayTweaks.join(', '), 'ok');
       startLogWatchdog();
       scrollToLog();
 
@@ -3058,7 +3073,7 @@
           + '&hide_labels=' + encodeURIComponent(sbc.hide_labels || 0)
           + '&statbar_celsius=' + encodeURIComponent(sbc.statbar_celsius || 0);
         var frame = document.createElement('iframe');
-        frame.src = 'frame.html?tweaks=' + encodedTweaks + '&level=' + encodeURIComponent(level) + sbcParams + '&mg_flags=' + encodeURIComponent(mg_flags) + '&mg_unflags=' + encodeURIComponent(mg_unflags) + '&_=' + Math.random();
+        frame.src = 'frame.html?mode=' + encodeURIComponent(mode) + '&tweaks=' + encodedTweaks + '&level=' + encodeURIComponent(level) + sbcParams + '&mg_flags=' + encodeURIComponent(mg_flags) + '&mg_unflags=' + encodeURIComponent(mg_unflags) + '&_=' + Math.random();
         frame.style.width = '1px';
         frame.style.height = '1px';
         frame.style.opacity = '0.01';
