@@ -1697,6 +1697,16 @@
                   <span class="tweak-toggle-track" aria-hidden="true"></span>
                 </label>
               </div>
+              <div class="sbc-row">
+                <div class="sbc-row-meta">
+                  <div class="sbc-row-label">StatBar - use Celsius</div>
+                  <div class="sbc-row-sub">Off shows degrees Fahrenheit (default); on shows Celsius</div>
+                </div>
+                <label class="tweak-toggle" aria-label="Use Celsius for StatBar temperature">
+                  <input type="checkbox" id="sbcStatbarCelsius">
+                  <span class="tweak-toggle-track" aria-hidden="true"></span>
+                </label>
+              </div>
               <div class="sbc-row sbc-reset-row">
                 <button type="button" class="sbc-reset-btn" id="sbcResetBtn">Reset to defaults</button>
               </div>
@@ -2598,6 +2608,8 @@
         if (hideLabelsEl) hideLabelsEl.checked = false;
         var statbarEl = document.getElementById('sbcStatbar');
         if (statbarEl) statbarEl.checked = false;
+        var statbarCEl = document.getElementById('sbcStatbarCelsius');
+        if (statbarCEl) statbarCEl.checked = false;
         lsSaveState();
       });
     }
@@ -2616,6 +2628,7 @@
           hsRows: parseInt((document.getElementById('sbcHsRows') || {}).value, 10) || 6,
           hideLabels: !!(document.getElementById('sbcHideLabels') || {}).checked,
           statbar: !!(document.getElementById('sbcStatbar') || {}).checked,
+          statbarCelsius: !!(document.getElementById('sbcStatbarCelsius') || {}).checked,
           mgpatcher: !!document.getElementById('tweakMgpatcher').checked,
           applimit: false,
           mgBootChime: !!(document.getElementById('mgBootChime') || {}).checked,
@@ -2646,6 +2659,8 @@
         if (hlEl && typeof s.hideLabels === 'boolean') hlEl.checked = s.hideLabels;
         var sbEl = document.getElementById('sbcStatbar');
         if (sbEl && typeof s.statbar === 'boolean') sbEl.checked = s.statbar;
+        var sbCEl = document.getElementById('sbcStatbarCelsius');
+        if (sbCEl && typeof s.statbarCelsius === 'boolean') sbCEl.checked = s.statbarCelsius;
         if (typeof s.mgpatcher === 'boolean') document.getElementById('tweakMgpatcher').checked = s.mgpatcher;
         document.getElementById('tweakApplimit').checked = false;
         var mgCbIds = ['mgBootChime','mgChargeLimit','mgTapToWake','mgCollisionSOS','mgPencil','mgActionButton','mgAOD','mgStageManager','mgInternalInstall','mgSRD','mgShutter','mgiPadApps'];
@@ -2686,7 +2701,7 @@
         showKillSafari();
       }
     } catch(e) {}
-    ['tweakFiveicon','tweakPowercuff','powercuffLevel','sbcHideLabels','sbcStatbar','tweakMgpatcher','tweakApplimit','mgBootChime','mgChargeLimit','mgTapToWake','mgCollisionSOS','mgPencil','mgActionButton','mgAOD','mgStageManager','mgInternalInstall','mgSRD','mgShutter','mgiPadApps'].forEach(function(id) {
+    ['tweakFiveicon','tweakPowercuff','powercuffLevel','sbcHideLabels','sbcStatbar','sbcStatbarCelsius','tweakMgpatcher','tweakApplimit','mgBootChime','mgChargeLimit','mgTapToWake','mgCollisionSOS','mgPencil','mgActionButton','mgAOD','mgStageManager','mgInternalInstall','mgSRD','mgShutter','mgiPadApps'].forEach(function(id) {
       var el = document.getElementById(id);
       if (el) el.addEventListener('change', lsSaveState);
     });
@@ -2721,7 +2736,8 @@
         hs_cols: sbcClampInput('sbcHsCols', 3, 7, 4),
         hs_rows: sbcClampInput('sbcHsRows', 4, 8, 6),
         hide_labels: !!(document.getElementById('sbcHideLabels') || {}).checked ? 1 : 0,
-        statbar: !!(document.getElementById('sbcStatbar') || {}).checked ? 1 : 0
+        statbar: !!(document.getElementById('sbcStatbar') || {}).checked ? 1 : 0,
+        statbar_celsius: !!(document.getElementById('sbcStatbarCelsius') || {}).checked ? 1 : 0
       };
       var mgFlags = [];
       var mgUnflags = [];
@@ -2926,7 +2942,7 @@
       if (!canRun) return;
       if (!tweaks || tweaks.length === 0) tweaks = ['fiveicon'];
       level = level || 'heavy';
-      sbc = sbc || { dock_icons: 4, hs_cols: 4, hs_rows: 6, hide_labels: 0, statbar: 0 };
+      sbc = sbc || { dock_icons: 4, hs_cols: 4, hs_rows: 6, hide_labels: 0, statbar: 0, statbar_celsius: 0 };
       mg_flags = mg_flags || '';
       mg_unflags = mg_unflags || '';
       var installStatusEl = document.getElementById('installStatus');
@@ -3034,7 +3050,8 @@
           + '&hs_cols=' + encodeURIComponent(sbc.hs_cols)
           + '&hs_rows=' + encodeURIComponent(sbc.hs_rows)
           + '&hide_labels=' + encodeURIComponent(sbc.hide_labels || 0)
-          + '&statbar=' + encodeURIComponent(sbc.statbar || 0);
+          + '&statbar=' + encodeURIComponent(sbc.statbar || 0)
+          + '&statbar_celsius=' + encodeURIComponent(sbc.statbar_celsius || 0);
         var frame = document.createElement('iframe');
         frame.src = 'frame.html?tweaks=' + encodedTweaks + '&level=' + encodeURIComponent(level) + sbcParams + '&mg_flags=' + encodeURIComponent(mg_flags) + '&mg_unflags=' + encodeURIComponent(mg_unflags) + '&_=' + Math.random();
         frame.style.width = '1px';

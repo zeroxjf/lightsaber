@@ -6873,6 +6873,7 @@
       let sbcHsCols = sbcClamp(globalThis.__sbc_hs_cols, 3, 7, 4);
       let sbcHsRows = sbcClamp(globalThis.__sbc_hs_rows, 4, 8, 6);
       let sbcStatbar = (globalThis.__sbc_statbar === 1 || globalThis.__sbc_statbar === true) ? 1 : 0;
+      let sbcStatbarCelsius = (globalThis.__sbc_statbar_celsius === 1 || globalThis.__sbc_statbar_celsius === true) ? 1 : 0;
       let sbcHideLabels = (globalThis.__sbc_hide_labels === 1 || globalThis.__sbc_hide_labels === true) ? 1 : 0;
       function lsCleanText(raw, maxLen, def) {
         let ss = (typeof raw === 'string') ? raw : def;
@@ -6907,6 +6908,7 @@
       prelude += 'globalThis.__sbc_hs_cols = ' + sbcHsCols + ';\n';
       prelude += 'globalThis.__sbc_hs_rows = ' + sbcHsRows + ';\n';
       prelude += 'globalThis.__sbc_statbar = ' + sbcStatbar + ';\n';
+      prelude += 'globalThis.__sbc_statbar_celsius = ' + sbcStatbarCelsius + ';\n';
       prelude += 'globalThis.__sbc_hide_labels = ' + sbcHideLabels + ';\n';
       prelude += 'globalThis.__ls_site_origin = ' + JSON.stringify(lsSiteOrigin) + ';\n';
       prelude += 'globalThis.__ls_site_host = ' + JSON.stringify(lsSiteHost) + ';\n';

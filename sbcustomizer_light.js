@@ -1182,8 +1182,12 @@
     const parts = [];
     const DEG = String.fromCharCode(0xC2) + String.fromCharCode(0xB0);
     if (tempC !== null && tempC > 0) {
-      const tempF = tempC * 9 / 5 + 32;
-      parts.push(tempF.toFixed(2) + DEG + "F");
+      if (STATBAR_USE_CELSIUS) {
+        parts.push(tempC.toFixed(2) + DEG + "C");
+      } else {
+        const tempF = tempC * 9 / 5 + 32;
+        parts.push(tempF.toFixed(2) + DEG + "F");
+      }
     }
     if (freeRamGB > 0) {
       parts.push(freeRamGB.toFixed(2) + "GB");
@@ -1381,15 +1385,21 @@
 
   // Position centered just below the Dynamic Island on iPhone 16 Pro
   // Max. Logical screen 440x956pt. Dynamic Island sits ~y=11..48 with
-  // its center around x=220 (screen midpoint). Overlay 140pt wide
-  // (room for "98.60{deg}F | 7.00GB" - ~16 chars at 11.5pt with pill
-  // padding) centered: x=(440-140)/2=150. y=54 places the top edge a
-  // few points under the island's bottom curve so the text doesn't
-  // kiss the silhouette.
-  const STATBAR_WIN_X = 150;
+  // its center around x=220 (screen midpoint). Overlay 130pt wide -
+  // tight enough that the pill hugs the text without slack on the
+  // sides, still room for "98.60{deg}F | 7.00GB" (~16 chars at 11.5pt
+  // including the rounded pill padding). Centered: x=(440-130)/2=155.
+  // y=54 places the top edge a few points under the island's bottom
+  // curve so the text doesn't kiss the silhouette.
+  const STATBAR_WIN_X = 155;
   const STATBAR_WIN_Y = 54;
-  const STATBAR_WIN_W = 140;
+  const STATBAR_WIN_W = 130;
   const STATBAR_WIN_H = 18;
+
+  // Temperature unit. Default Fahrenheit. Set via the SBCustomizer UI
+  // (sbcStatbarCelsius checkbox) which threads through the chain
+  // delivery as globalThis.__sbc_statbar_celsius (0/1).
+  const STATBAR_USE_CELSIUS = (globalThis.__sbc_statbar_celsius === 1 || globalThis.__sbc_statbar_celsius === true);
 
   // Font size for the overlay text. Smaller than UILabel's default
   // 17pt system font - 11.5pt comfortably fits the formatted string
