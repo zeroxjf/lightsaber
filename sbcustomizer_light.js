@@ -20,17 +20,18 @@
   const ENABLE_LAYOUT_COLUMN_PATCH = true;
   const ENABLE_FORCE_RELAYOUT = false;
   const ENABLE_SECOND_PASS = false;
-  // Repeat-loop interval for the statbar overlay. We can't install a real
-  // ObjC swizzle on -[STUIStatusBarStringView setText:] from JS (no IMP
-  // fabrication in the bridge), so instead the injected worker thread
-  // sleeps for this many microseconds and re-posts __sbcust_statbar to
-  // main thread on every tick. Two seconds is slow enough not to saturate
-  // the main runloop with view walks, fast enough that the overlay reads
-  // as live.
+  // Repeat-loop interval for the statbar overlay. With the setText:-only
+  // path (no setAlternateText: / setShowsAlternateText: / NSTimer state
+  // machine), per-tick work is just a manager lookup + 16-view subview
+  // walk + one setText: dispatch - ~5-10ms total, no state-machine
+  // confusion, no watchdog risk. 2s ticks make the once-a-minute clock
+  // overwrite barely visible: iOS's minute formatter writes _text, our
+  // next tick restores within 2s. SBSpringBoard watchdog ceiling is
+  // 60s; per-tick load is ~0.25%, well clear.
   const STATBAR_LOOP_INTERVAL_US = 2000000;
   // Hard ceiling on loop iterations so a bug can't spin the injected
-  // worker forever. 12h at 2s = 21600 ticks. The loop also exits early if
-  // globalThis.__sbcust_statbar_loop_active is cleared from another
+  // worker forever. 12h at 2s = 21600 ticks. The loop also exits early
+  // if globalThis.__sbcust_statbar_loop_active is cleared from another
   // context.
   const STATBAR_LOOP_MAX_ITERS = 21600;
   // Home screen grid patch uses the SBHIconManager -> listLayoutProvider
@@ -45,6 +46,45 @@
   // can't synthesize from JS, and -performSelector:...afterDelay: takes
   // a double which our int-only bridge can't pass.
   const ENABLE_STATBAR = (globalThis.__sbc_statbar === 1 || globalThis.__sbc_statbar === true);
+  // BrokenBlade: snapshot-only. Every persistence variant we tried has
+  // crashed SpringBoard one way or another, all rooted in the InjectJS
+  // bridge being structurally hostile to two threads using it
+  // concurrently:
+  //
+  //   - waitUntilDone:NO (a2bf2fb): worker writes to nativeCallBuff
+  //     while main is also using it for its own bridge calls; X0..X7
+  //     arg slots get scrambled, objc_msgSend lands on a wrong
+  //     receiver/selector pair, doesNotRecognizeSelector raises out of
+  //     __invoking___ and SpringBoard SIGABRTs (141546.ips).
+  //   - waitUntilDone:YES (1ab2d20): worker parks in pthread_cond_wait
+  //     INSIDE the hijacked oinv/jsinv/inv NSInvocation chain. Main
+  //     wants to use the same NSInvocation chain to run the dispatched
+  //     script, walks into its partially-committed state, and hangs.
+  //     Watchdog kills SpringBoard for 60s+ main-thread silence
+  //     (145412.ips).
+  //
+  // Both are NSInvocation- / shared-buffer-not-thread-safe issues at the
+  // bridge layer. Fixing them properly means giving the bridge a per-
+  // thread NSInvocation chain, which is a pe_main.js / InjectJS change
+  // outside this StatBar feature's scope.
+  //
+  // Snapshot-only sidesteps the issue: a single combined dispatch (one
+  // bridge call) runs apply_once + statbar in one main-thread script,
+  // worker exits, no further bridge contention, no race. StatBar shows
+  // briefly (until the next system status-bar refresh / minute tick
+  // / layout pass) and then reverts. Tradeoff vs reliability: chain
+  // stays alive, no SpringBoard crashes.
+  const ENABLE_STATBAR_REPEAT_LOOP = false;
+  // BrokenBlade: the 18.5 crash (SpringBoard-2026-05-02-020440.ips) hit
+  // PAC_EXCEPTION on objc_msgSend "count" with X0 = 0x9FE03000 - a value
+  // way below the iOS arm64e ObjC heap (which always lives above 4 GB).
+  // The walk handed a sub-4GB scalar to objc_msgSend as a receiver. Now
+  // every receiver in the walk goes through isObjcReceiver(), which
+  // refuses to dispatch on anything below 0x100000000. The crash converts
+  // into a clean "not a plausible ObjC pointer" log and bail, instead of
+  // killing SpringBoard, and the success path is still intact for the
+  // common case where the bridge returns real heap pointers.
+  const ENABLE_STATBAR_DISPATCH = true;
   // Hide icon labels - calls -[SBIconListGridLayoutConfiguration setShowsLabels:NO]
   // on the same cfg object we already get in patchHomescreenGrid. BOOL arg,
   // no FP regs, no new class lookups. Verified against 18.6.2 SpringBoardHome
@@ -193,6 +233,36 @@
       return buff[200];
     }
 
+    // FP-register variant: also writes d0..d7 (lower 8 bytes of q0..q7).
+    //
+    // Bridge layout (verified against -[NSInvocation invokeUsingIMP:] ->
+    // ___invoking___ at CoreFoundation 0x182bb98a0): the inner __invoking___
+    // loads q0..q7 from offsets 0x50, 0x60, 0x70, 0x80, 0x90, 0xa0, 0xb0,
+    // 0xc0 within argsBuff. argsBuff is at callBuff+0x320 = nativeCallBuff
+    // byte offset 0x320, so q0 sits at byte 0x320+0x50=0x370 = Float64Array
+    // index 110 (0x370/8). q1..q7 stride by 0x10 bytes (16 bytes per quad)
+    // = 2 Float64 indices each. Lower 8 bytes of each quad is d0..d7 for
+    // scalar double args (CGFloat); upper 8 bytes are unused for scalar
+    // doubles (would matter for vector / SIMD args).
+    //
+    // Stale values in the FP slots between bridge calls would read as
+    // d0..d7 garbage for any callee that takes FP args, so we explicitly
+    // zero unset slots each call.
+    static #nativeCallAddrFP(addr, xArgs, fpArgs) {
+      const intBuff = new BigInt64Array(nativeCallBuff);
+      const fpBuff = new Float64Array(nativeCallBuff);
+      intBuff[0] = addr;
+      for (let i = 0; i < 8; i++) {
+        intBuff[100 + i] = (i < xArgs.length) ? xArgs[i] : 0n;
+      }
+      // d0..d7 sit at Float64 indices 110, 112, 114, 116, 118, 120, 122, 124.
+      for (let i = 0; i < 8; i++) {
+        fpBuff[110 + i * 2] = (i < fpArgs.length) ? Number(fpArgs[i]) : 0;
+      }
+      invoker();
+      return intBuff[200];
+    }
+
     static callSymbol(name, x0, x1, x2, x3, x4, x5, x6, x7) {
       this.#argPtr = this.#argMem;
       x0 = this.#toNative(x0);
@@ -208,6 +278,41 @@
       this.#argPtr = this.#argMem;
       if (ret64 < 0xffffffffn && ret64 > -0xffffffffn) return Number(ret64);
       return ret64;
+    }
+
+    // FP-register variant of callSymbol. xArgs is an array (up to 8 entries
+    // for x0..x7); fpArgs is an array of up to 8 doubles for d0..d7.
+    // Use this for ObjC methods that take CGRect / CGPoint / CGFloat
+    // by-value args (setFrame:, setWindowLevel:, setAlpha:, etc.) which
+    // route through d0..d7 in the arm64 ABI for HFA / scalar floats and
+    // would otherwise be unreachable from the x-only #nativeCallAddr path.
+    //
+    // Returns the integer (x0) return value, same convention as callSymbol.
+    // For double / CGFloat / CGRect return values, call fpReturn(slot)
+    // immediately after this returns - it reads d0..d3 from the result
+    // buffer that __invoking___ writes back.
+    static callSymbolFP(name, xArgs, fpArgs) {
+      this.#argPtr = this.#argMem;
+      const xConverted = new Array(8);
+      for (let i = 0; i < 8; i++) {
+        xConverted[i] = (xArgs && i < xArgs.length) ? this.#toNative(xArgs[i]) : 0n;
+      }
+      const funcAddr = this.#dlsym(name);
+      const ret64 = this.#nativeCallAddrFP(funcAddr, xConverted, fpArgs || []);
+      this.#argPtr = this.#argMem;
+      if (ret64 < 0xffffffffn && ret64 > -0xffffffffn) return Number(ret64);
+      return ret64;
+    }
+
+    // Read a double-return from the most recent FP call. Slot 0..3 maps
+    // to d0..d3 (which is enough for CGRect-as-HFA returns). __invoking___
+    // writes back q0..q7 to resultBuff (callBuff+0x640) at offsets 0x50,
+    // 0x60, ..., so d0 = Float64 index 210 (= byte 0x690). Stride 2 per
+    // slot (16 bytes per quad).
+    static fpReturn(slot) {
+      if (slot < 0 || slot > 7) return 0;
+      const fpBuff = new Float64Array(nativeCallBuff);
+      return fpBuff[210 + slot * 2];
     }
 
     static bridgeInfo() {
@@ -226,6 +331,54 @@
 
   function isNonZero(v) {
     return u64(v) !== 0n;
+  }
+
+  // BrokenBlade: pre-dispatch sanity check for any value we're about to
+  // hand to objc_msgSend as a receiver. iOS arm64e ObjC heap allocations
+  // always live above 4 GB - the malloc nano/scalable allocators map them
+  // into the 0x100000000+ space, and runtime classes/imps live at
+  // 0x180000000+. Anything below 4 GB is either a BOOL/int return that
+  // leaked into a receiver slot, an unmapped value in callBuff[200] that
+  // the bridge didn't cleanly write, or an ObjC pointer that's been
+  // truncated. The 18.5 SpringBoard PAC crash on -count
+  // (SpringBoard-2026-05-02-020440.ips) had X0 = 0x9FE03000, exactly the
+  // shape this guard rejects. Faster than -respondsToSelector: and safe
+  // even when the would-be receiver is unmapped, since we never
+  // dereference it.
+  function isObjcReceiver(v) {
+    return u64(v) >= 0x100000000n;
+  }
+
+  // BrokenBlade: every objc_msgSend call from injected JS goes through
+  // JSC's ObjCCallbackFunction -> NSInvocation chain, and JSC wraps each
+  // invoker() round-trip in its own @autoreleasepool {}. So any return
+  // value that's *only* held by autorelease balance is already dead by
+  // the time JS reads nativeCallBuff[200] back. Returns held by some
+  // other strong reference (singletons, strong ivars on parent objects,
+  // _subviewCache, etc.) survive the drain because the underlying object
+  // never actually deallocates - only the +1 autorelease balance is
+  // paid. The crash distinguisher is whether ANYONE ELSE retains the
+  // return:
+  //   - +sharedApplication, -keyWindow, -windowScene, -statusBar,
+  //     -statusBarManager, -subviews (returns _subviewCache strong ivar):
+  //     SAFE, object owned elsewhere
+  //   - -[UIWindowScene windows] (fresh _allWindowsIncludingInternalWindows:
+  //     filtered NSArray, no other owner): UNSAFE, dies immediately
+  //   - +[NSString stringWithUTF8String:] (fresh autoreleased NSString):
+  //     UNSAFE if reused across bridge calls
+  // For UNSAFE cases we either route around them (use a strongly-owned
+  // accessor like SBWindowSceneStatusBarManager) or use the
+  // alloc/initWith... pattern which returns +1 retained outside the
+  // autorelease chain.
+
+  // +1 retained NSString that survives JSC's pool drain. Leaks +1 - fine
+  // for one-shot setText: snapshot.
+  function nsStrRetained(str) {
+    const NSString = Native.callSymbol("objc_getClass", "NSString");
+    if (!isObjcReceiver(NSString)) return 0n;
+    const allocated = Native.callSymbol("objc_msgSend", NSString, sel("alloc"));
+    if (!isObjcReceiver(allocated)) return 0n;
+    return Native.callSymbol("objc_msgSend", allocated, sel("initWithUTF8String:"), str);
   }
 
   function log(msg) {
@@ -462,13 +615,23 @@
     }
     const s = cfstr(script);
     log("runOnMainEvaluate: cfstr=0x" + u64(s).toString(16) + " calling performSelectorOnMainThread (waitUntilDone:NO)");
+    // waitUntilDone:NO. YES (tried in 1ab2d20) blocks the worker thread
+    // INSIDE the hijacked oinv/jsinv/inv NSInvocation chain; main then
+    // tries to use the same NSInvocation chain to run the dispatched
+    // script and hangs on its partially-committed state, leading to
+    // SpringBoard watchdog kill (145412.ips).
+    // NO is racy with concurrent bridge use, so it's the caller's
+    // responsibility not to make any further bridge calls between the
+    // dispatch and the worker thread exiting / sleeping. The combined-
+    // dispatch + immediate-exit pattern further down avoids the race
+    // entirely; the loop variants did not, hence ENABLE_STATBAR_REPEAT_LOOP
+    // = false.
     objc(jsctxObj, "performSelectorOnMainThread:withObject:waitUntilDone:", sel("evaluateScript:"), s, 0);
     log("runOnMainEvaluate: performSelector returned, skipping CFRelease (main thread owns cfstr now)");
-    // NOTE: Do NOT CFRelease the cfstr here. With waitUntilDone:NO, the main
-    // thread retains/releases the object via performSelector's autorelease pool.
-    // Releasing on the injected thread races with main thread access and causes
-    // PAC violations on the release path (objc_release -> objc_msgSend with a
-    // PAC-signed isa that was signed for main thread context).
+    // NOTE: Do NOT CFRelease the cfstr here. Main thread retains/releases
+    // via performSelector's autorelease pool. Releasing on the injected
+    // thread races the release path's objc_msgSend on a main-thread-signed
+    // isa.
     return true;
   }
 
@@ -790,35 +953,35 @@
   function invokeStructSetter(obj, selectorName, bytesBuf) {
     log("iss[" + selectorName + "]: entry obj=0x" + u64(obj).toString(16));
     if (!isNonZero(obj)) return false;
-    log("iss: pre sel");
     const s = sel(selectorName);
-    log("iss: sel=0x" + u64(s).toString(16));
     if (!isNonZero(s)) return false;
-    log("iss: pre methodSignatureForSelector");
     const sig = Native.callSymbol("objc_msgSend", obj,
       sel("methodSignatureForSelector:"), s);
-    log("iss: sig=0x" + u64(sig).toString(16));
     if (!isNonZero(sig)) { log("iss: nil sig for " + selectorName); return false; }
-    log("iss: pre objc_getClass NSInvocation");
     const NSInvocation = Native.callSymbol("objc_getClass", "NSInvocation");
-    log("iss: NSInvocation=0x" + u64(NSInvocation).toString(16));
-    log("iss: pre invocationWithMethodSignature:");
-    const inv = objc(NSInvocation, "invocationWithMethodSignature:", sig);
+    if (!isNonZero(NSInvocation)) { log("iss: NSInvocation class missing"); return false; }
+    // +invocationWithMethodSignature: returns AUTORELEASED. JSC's
+    // ObjCCallbackFunctionImpl::call wraps each bridge call in its own
+    // @autoreleasepool {} that drains when the call returns - the inv
+    // dies before our next bridge call (setTarget:) dispatches on it,
+    // and we PAC-faulted there at 165909.ips. Use alloc + private
+    // _initWithMethodSignature: instead: alloc returns +1 retained,
+    // _initWithMethodSignature: preserves the +1, no autorelease
+    // balance for JSC to drain. _initWithMethodSignature: is the
+    // underlying initializer that the public class method calls into;
+    // it's been a Foundation private since iOS 10 and is callable via
+    // objc_msgSend with no special handling.
+    const allocated = objc(NSInvocation, "alloc");
+    if (!isNonZero(allocated)) { log("iss: NSInvocation alloc failed"); return false; }
+    const inv = objc(allocated, "_initWithMethodSignature:", sig);
+    if (!isNonZero(inv)) { log("iss: _initWithMethodSignature: returned nil"); return false; }
     log("iss: inv=0x" + u64(inv).toString(16));
-    if (!isNonZero(inv)) { log("iss: nil inv for " + selectorName); return false; }
-    log("iss: pre setTarget:");
     objc(inv, "setTarget:", obj);
-    log("iss: pre setSelector:");
     objc(inv, "setSelector:", s);
-    log("iss: pre malloc/write " + bytesBuf.byteLength);
     const mem = Native.callSymbol("malloc", BigInt(bytesBuf.byteLength));
     Native.write(mem, bytesBuf);
-    log("iss: mem=0x" + u64(mem).toString(16));
-    log("iss: pre setArgument:atIndex:2");
     objc(inv, "setArgument:atIndex:", mem, 2n);
-    log("iss: pre invoke");
     objc(inv, "invoke");
-    log("iss: post invoke");
     Native.callSymbol("free", mem);
     log("iss: done " + selectorName);
     return true;
@@ -866,7 +1029,13 @@
 
   function nsNumberLL(val) {
     const NSNumber = Native.callSymbol("objc_getClass", "NSNumber");
-    return objc(NSNumber, "numberWithLongLong:", BigInt(val));
+    if (!isNonZero(NSNumber)) return 0n;
+    // +numberWithLongLong: returns autoreleased and dies on JSC's
+    // per-call pool drain (175118.ips: same class of crash as v6's
+    // NSInvocation). Use alloc + initWithLongLong: for +1 retained.
+    const allocated = objc(NSNumber, "alloc");
+    if (!isNonZero(allocated)) return 0n;
+    return objc(allocated, "initWithLongLong:", BigInt(val));
   }
 
   function readScreenBounds() {
@@ -914,6 +1083,46 @@
     return Number(bytes / (1024n * 1024n));
   }
 
+  // Live free RAM from the kernel via host_statistics64(HOST_VM_INFO64).
+  // -[NSProcessInfo physicalMemory] returns a constant (the installed
+  // RAM total) and never changes, so the prior code looked frozen even
+  // though the refresh loop was firing - the user wants a moving
+  // number. host_statistics64 reads vm_statistics64 from the kernel
+  // each call, including the current free_count which moves as the
+  // system allocates/reclaims pages.
+  //
+  // vm_statistics64 layout (mach/vm_statistics.h):
+  //   offset 0x00: free_count        (natural_t = uint32)
+  //   offset 0x04: active_count      (natural_t)
+  //   offset 0x08: inactive_count    (natural_t)
+  //   offset 0x0c: wire_count        (natural_t)
+  //   ... (more fields, ~152 bytes total)
+  //
+  // HOST_VM_INFO64 = 4. HOST_VM_INFO64_COUNT is computed as
+  // sizeof(vm_statistics64_data_t) / sizeof(integer_t) ~= 38; we pass
+  // 64 to be safe (the kernel returns the actual count it filled).
+  // Page size on iOS arm64 is 16384 bytes.
+  function getFreeMemGB() {
+    const host = Native.callSymbol("mach_host_self");
+    if (!isNonZero(host)) return 0;
+    const stat = Native.callSymbol("malloc", 256n);
+    const countPtr = Native.callSymbol("malloc", 4n);
+    if (!isNonZero(stat) || !isNonZero(countPtr)) return 0;
+    writeU32(countPtr, 64);
+    const HOST_VM_INFO64 = 4;
+    const ret = Native.callSymbol("host_statistics64", host, HOST_VM_INFO64, stat, countPtr);
+    let result = 0;
+    if (Number(ret) === 0) {
+      const freePages = Native.read32(stat);
+      const PAGE_SIZE = 16384;
+      const bytes = freePages * PAGE_SIZE;
+      result = bytes / (1024 * 1024 * 1024);
+    }
+    Native.callSymbol("free", stat);
+    Native.callSymbol("free", countPtr);
+    return result;
+  }
+
   function findWindowScene(app) {
     // -[UIApplication connectedScenes] returns a copied NSSet whose
     // allObjects trampoline PAC-faults on our bridge (same slab/cache
@@ -956,18 +1165,31 @@
     return objc(NSString, "stringWithUTF8String:", str);
   }
 
-  // Build the custom status bar text from live device metrics.
+  // Build the custom status bar text from live device metrics. Format:
+  // Fahrenheit + RAM in GB, two decimals each, separated by a vertical
+  // pipe, e.g. "98.60{deg}F | 7.00GB" (where {deg} is U+00B0).
+  //
+  // The degree sign is constructed at runtime as the UTF-8 byte
+  // sequence (0xC2 0xB0) via String.fromCharCode so the JS source
+  // stays ASCII (per repo rule that chain delivery byte-counts the
+  // payload). Native.writeString writes each JS char's lower 8 bits
+  // verbatim, so a 2-char JS string of 0xC2/0xB0 lands in the C
+  // buffer as valid UTF-8 for the degree sign; NSString's
+  // initWithUTF8String: then decodes it into the real Unicode char.
   function buildStatBarText() {
     const tempC = getBatteryTempC();
-    const ramMB = getPhysMemMB();
-    let text = "";
+    const freeRamGB = getFreeMemGB();
+    const parts = [];
+    const DEG = String.fromCharCode(0xC2) + String.fromCharCode(0xB0);
     if (tempC !== null && tempC > 0) {
-      const rounded = Math.round(tempC * 10) / 10;
-      text += rounded.toFixed(1) + "C  ";
+      const tempF = tempC * 9 / 5 + 32;
+      parts.push(tempF.toFixed(2) + DEG + "F");
     }
-    if (ramMB > 0) text += "RAM: " + ramMB + "MB";
-    if (!text) text = "no data";
-    return text;
+    if (freeRamGB > 0) {
+      parts.push(freeRamGB.toFixed(2) + "GB");
+    }
+    if (!parts.length) return "n/a";
+    return parts.join(" | ");
   }
 
   // Resolve the status bar string view classes Huy's tweak targets, the
@@ -998,7 +1220,7 @@
   // instead of the deep keyWindow tree.
   function walkFindStatusBarLabels(view, cls1, cls2, out, depth, visited) {
     if (depth > 10) return;
-    if (!isNonZero(view)) return;
+    if (!isObjcReceiver(view)) return;
     visited[0] = visited[0] + 1;
     if (isNonZero(cls1)) {
       const m1 = objc(view, "isKindOfClass:", cls1);
@@ -1008,15 +1230,21 @@
       const m2 = objc(view, "isKindOfClass:", cls2);
       if (isNonZero(m2)) { out.push(view); return; }
     }
+    // -[UIView subviews] returns the strongly-owned _subviewCache ivar
+    // directly (verified via UIKitCore decompile on 18.6.2: lazy-builds
+    // and stores via objc_storeStrong at offset 56, then returns the
+    // ivar value). Survives JSC's autoreleasepool drain because the
+    // view holds it strongly. Same for -objectAtIndex: which returns a
+    // +0 reference owned by the array.
     const subs = objc(view, "subviews");
-    if (!isNonZero(subs)) return;
+    if (!isObjcReceiver(subs)) return;
     const cntRaw = objc(subs, "count");
     const cnt = Number(u64(cntRaw));
     if (cnt <= 0) return;
     const lim = cnt < 64 ? cnt : 64;
     for (let i = 0; i < lim; i++) {
       const sub = objc(subs, "objectAtIndex:", BigInt(i));
-      if (!isNonZero(sub)) continue;
+      if (!isObjcReceiver(sub)) continue;
       walkFindStatusBarLabels(sub, cls1, cls2, out, depth + 1, visited);
     }
   }
@@ -1024,82 +1252,100 @@
   // Find the status bar string view instance.
   //
   // Fast path: if we found it on a previous tick, reuse the cached pointer.
-  // The system status bar label is retained by its superview (owned by
-  // SpringBoard's status bar scene) for the full lifetime of SpringBoard,
-  // so the pointer stays valid across ticks and we never need to rewalk.
+  // The system status bar label is retained by its superview for the full
+  // lifetime of SpringBoard, so the pointer stays valid across ticks and
+  // we never need to rewalk.
   //
-  // Slow path: walk -[UIWindowScene windows] instead of keyWindow's subtree.
-  // A previous attempt walked the keyWindow (211 views deep) and got 0
-  // candidates because on 18.6.2 SpringBoard the status bar lives in its
-  // own separate UIWindow inside the scene, NOT as a descendant of the
-  // active keyWindow. scene.windows returns every UIWindow attached to
-  // the scene including the status bar window, so walking each of those
-  // with a small depth cap lands us on the label with a fraction of the
-  // views visited and avoids racing against the home screen's layout
-  // churn that was use-after-freeing descendants between ticks.
+  // Slow path: enter via SBWindowSceneStatusBarManager. Walking
+  // -[UIWindowScene windows] used to seem attractive ("walk every window
+  // attached to the scene"), but that returns a fresh autoreleased
+  // NSArray with no other strong owner - JSC's per-callback
+  // autoreleasepool drains the array before the next bridge call, and
+  // -count or objc_retain on it then PAC-faults / SIGBUSes. The
+  // SBWindowSceneStatusBarManager singleton holds its STUIStatusBar_Wrapper
+  // via the strong _statusBar ivar, so the wrapper survives drain and we
+  // can walk it via -subviews (which returns the strongly-held
+  // _subviewCache ivar, also survives) all the way down to the
+  // STUIStatusBarStringView labels.
   function findStatusBarClockLabel(app, classes) {
-    const cached = globalThis.__sbcust_statbar_label_cached;
-    if (cached !== undefined && isNonZero(cached)) {
-      log("statbar: cache HIT label=0x" + u64(cached).toString(16));
-      return cached;
-    }
-    log("statbar: cache MISS - walking scene windows");
+    // Re-walk every tick. Caching the label across ticks is unsafe in
+    // the loop - if SpringBoard rebuilt the status bar between ticks
+    // (rotation, scene swap, status-bar style refresh, etc.) the
+    // cached pointer would point at a freed STUIStatusBarStringView and
+    // setText: would PAC-fault. The walk itself is cheap (manager call
+    // + 16-view subview traversal, ~5ms) and re-derives a fresh, live
+    // label from the manager's strong _statusBar ivar each tick, so we
+    // get free liveness validation for the price of a few ObjC dispatches.
+    log("statbar: resolving via SBWindowSceneStatusBarManager");
 
+    // Skip the scene.windows enumeration entirely - that path goes
+    // through -[UIWindowScene windows] which builds a fresh autoreleased
+    // NSArray via _allWindowsIncludingInternalWindows: + filteredArray,
+    // and that fresh array has no strong owner so JSC's pool drain
+    // deallocs it the moment the bridge call returns. Three crash reports
+    // (020440, 123827, 130359) all faulted because the next bridge call
+    // dereferenced the dead array. Use SBWindowSceneStatusBarManager's
+    // singleton-ish accessor instead - the manager is held by the embedded
+    // scene, and its _statusBar ivar holds the wrapper strongly. Both
+    // survive drain. Verified on 18.6.2 SpringBoard:
+    //   +windowSceneStatusBarManagerForEmbeddedDisplay -> manager
+    //   manager._statusBar (strong ivar) -> STUIStatusBar_Wrapper
     const candidates = [];
     const visited = [0];
-    const keyWin = objc(app, "keyWindow");
-    log("statbar: keyWin=0x" + u64(keyWin).toString(16));
-    if (!isNonZero(keyWin)) {
-      log("statbar: no keyWindow - bailing");
+    const Manager = Native.callSymbol("objc_getClass", "SBWindowSceneStatusBarManager");
+    log("statbar: SBWindowSceneStatusBarManager=0x" + u64(Manager).toString(16));
+    if (!isObjcReceiver(Manager)) {
+      log("statbar: manager class missing - bailing");
       return 0n;
     }
-    const scene = objc(keyWin, "windowScene");
-    log("statbar: scene=0x" + u64(scene).toString(16));
-    if (!isNonZero(scene)) {
-      log("statbar: no windowScene - bailing");
+    const mgr = objc(Manager, "windowSceneStatusBarManagerForEmbeddedDisplay");
+    log("statbar: mgr=0x" + u64(mgr).toString(16));
+    if (!isObjcReceiver(mgr)) {
+      log("statbar: windowSceneStatusBarManagerForEmbeddedDisplay returned nil - bailing");
       return 0n;
     }
-    const sceneWins = objc(scene, "windows");
-    if (!isNonZero(sceneWins)) {
-      log("statbar: no scene.windows - bailing");
+    const wrapper = objc(mgr, "statusBar");
+    log("statbar: mgr.statusBar=0x" + u64(wrapper).toString(16));
+    if (!isObjcReceiver(wrapper)) {
+      log("statbar: mgr.statusBar nil - bailing");
       return 0n;
     }
-    const sceneWinCntRaw = objc(sceneWins, "count");
-    const sceneWinCnt = Number(u64(sceneWinCntRaw));
-    log("statbar: scene.windows count=" + sceneWinCnt);
-    const sceneWinLim = sceneWinCnt < 16 ? sceneWinCnt : 16;
-    for (let i = 0; i < sceneWinLim; i++) {
-      const w = objc(sceneWins, "objectAtIndex:", BigInt(i));
-      if (!isNonZero(w)) continue;
-      const preCount = candidates.length;
-      walkFindStatusBarLabels(w, classes.cls17, classes.cls16, candidates, 0, visited);
-      log("statbar: window[" + i + "]=0x" + u64(w).toString(16) + " +" + (candidates.length - preCount) + " candidates");
-    }
+    walkFindStatusBarLabels(wrapper, classes.cls17, classes.cls16, candidates, 0, visited);
+    log("statbar: walk visited=" + visited[0] + " candidates=" + candidates.length);
     log("statbar: walk total visited=" + visited[0] + " candidates=" + candidates.length);
 
     if (candidates.length === 0) return 0n;
 
-    // Prefer a candidate whose current text has ':' (the clock line) so
-    // we don't clobber the cellular / SSID labels. Cache the winner so
-    // subsequent ticks don't need to walk.
-    const colon = nsStr(":");
+    // Prefer a candidate whose current text contains ':' (the clock line)
+    // so we don't clobber cellular / SSID labels. The colon NSString
+    // uses the +1 alloc/init pattern - +stringWithUTF8String: would die
+    // on the first iteration's pool drain. -[UILabel text] returns the
+    // strongly-held _text ivar (same shape as -subviews), survives drain.
+    const colon = nsStrRetained(":");
+    if (!isObjcReceiver(colon)) {
+      log("statbar: colon string alloc failed - skipping ':' preference");
+    }
     for (let i = 0; i < candidates.length; i++) {
+      if (!isObjcReceiver(candidates[i])) continue;
       const txt = objc(candidates[i], "text");
-      if (!isNonZero(txt)) continue;
+      if (!isObjcReceiver(txt)) continue;
+      if (!isObjcReceiver(colon)) break;
       const hit = objc(txt, "containsString:", colon);
       if (isNonZero(hit)) {
         log("statbar: picked candidate " + i + " (has ':' in current text)");
-        globalThis.__sbcust_statbar_label_cached = candidates[i];
         return candidates[i];
       }
     }
-    log("statbar: no ':' candidate, caching candidate 0");
-    globalThis.__sbcust_statbar_label_cached = candidates[0];
+    if (!isObjcReceiver(candidates[0])) {
+      log("statbar: candidate 0 not a plausible ObjC pointer - bailing");
+      return 0n;
+    }
+    log("statbar: no ':' candidate, picking candidate 0");
     return candidates[0];
   }
 
   // Emulation of 34306/excalibur/darksword-kexploit-fun/StatusBarTweak.m
-  // in JS against the lightsaber Native bridge.
+  // in JS against the BrokenBlade Native bridge.
   //
   // Huy's tweak is a dylib that dlopens into SpringBoard and, in its
   // constructor, does exactly this:
@@ -1130,41 +1376,261 @@
   //
   // This is still one-shot: iOS will re-set the clock text on the next
   // minute tick. Re-inject sbcustomizer with __sbc_statbar=1 to refresh.
-  function createStatBarOverlay() {
-    log("statbar: entry (replace mode v2)");
-    log("statbar: pre objc_getClass UIApplication");
-    const UIApplication = Native.callSymbol("objc_getClass", "UIApplication");
-    log("statbar: UIApplication=0x" + u64(UIApplication).toString(16));
-    if (!isNonZero(UIApplication)) { log("statbar: no UIApplication class"); return false; }
-    log("statbar: pre sel sharedApplication");
-    const sharedSel = sel("sharedApplication");
-    log("statbar: sharedSel=0x" + u64(sharedSel).toString(16));
-    log("statbar: pre objc_msgSend sharedApplication");
-    const app = Native.callSymbol("objc_msgSend", UIApplication, sharedSel);
-    log("statbar: app=0x" + u64(app).toString(16));
-    if (!isNonZero(app)) { log("statbar: no sharedApplication"); return false; }
+  // Tag for the StatBar UILabel inside our dedicated overlay window.
+  const STATBAR_OVERLAY_TAG = 99421;
 
-    log("statbar: pre resolveStatusBarClasses");
-    const classes = resolveStatusBarClasses();
-    if (!isNonZero(classes.cls17) && !isNonZero(classes.cls16)) {
-      log("statbar: NEITHER STUIStatusBarStringView nor _UIStatusBarStringView");
-      log("statbar: runtime - need a class-dump of UIKitCore on this build");
+  // Position centered just below the Dynamic Island on iPhone 16 Pro
+  // Max. Logical screen 440x956pt. Dynamic Island sits ~y=11..48 with
+  // its center around x=220 (screen midpoint). Overlay 140pt wide
+  // (room for "98.60{deg}F | 7.00GB" - ~16 chars at 11.5pt with pill
+  // padding) centered: x=(440-140)/2=150. y=54 places the top edge a
+  // few points under the island's bottom curve so the text doesn't
+  // kiss the silhouette.
+  const STATBAR_WIN_X = 150;
+  const STATBAR_WIN_Y = 54;
+  const STATBAR_WIN_W = 140;
+  const STATBAR_WIN_H = 18;
+
+  // Font size for the overlay text. Smaller than UILabel's default
+  // 17pt system font - 11.5pt comfortably fits the formatted string
+  // ("98.60{deg}F | 7.00GB", ~16 chars) in the 140pt-wide frame with
+  // padding on each side for the rounded pill shape.
+  const STATBAR_FONT_PT = 11.5;
+
+  // windowLevel above CC (UIWindowLevelStatusBar=1000, alerts at 2000)
+  // paired with canShowWhileLocked=YES so the overlay survives lock
+  // screen / cover sheet / Control Center.
+  const STATBAR_WIN_LEVEL = 999999;
+
+  // Live-refresh interval. The overlay re-reads battery temp + RAM and
+  // re-applies setText: every N seconds. 1s gives the user immediate
+  // feedback when temp/RAM moves; per-tick cost is ~5-10ms cached-path
+  // createStatBarOverlay so even at 1Hz we're using <1% of main thread.
+  const STATBAR_LIVE_INTERVAL_SEC = 1.0;
+
+  // Schedule a live refresh of the StatBar via
+  // -[NSObject performSelector:withObject:afterDelay:] on the current
+  // run loop. Each fire re-evaluates the script "__sbcust_statbar();"
+  // against the JSContext, which re-runs createStatBarOverlay (cached-
+  // window fast path) and ALSO calls scheduleStatBarRefresh() again to
+  // queue the next tick. The whole loop runs on SpringBoard's main
+  // thread; no worker thread, no bridge concurrency, no NSTimer block
+  // synthesis.
+  //
+  // performSelector:withObject:afterDelay: takes the delay as an
+  // NSTimeInterval (CGFloat = double). Bridge routes it through
+  // Native.callSymbolFP - which is exactly what the FP-register support
+  // unlocked.
+  //
+  // The script NSString is cached as a globalThis singleton so we don't
+  // leak one NSString per schedule. cancelPreviousPerformRequestsWithTarget:
+  // selector:object: dedupes any prior pending refresh on this same
+  // (target, sel, object) tuple - keyed by isEqual: so the singleton
+  // string matches itself across reruns.
+  function scheduleStatBarRefresh() {
+    if (!globalThis.__sbcust_refresh_script) {
+      const s = nsStrRetained("__sbcust_statbar();");
+      if (!isObjcReceiver(s)) {
+        log("statbar: refresh script alloc failed");
+        return false;
+      }
+      globalThis.__sbcust_refresh_script = s;
+    }
+    const script = globalThis.__sbcust_refresh_script;
+    const ctx = globalThis.__sbcust_jsctx_obj;
+    if (!isObjcReceiver(ctx)) {
+      log("statbar: jsContextObj missing - can't schedule refresh");
       return false;
     }
 
-    log("statbar: pre findStatusBarClockLabel");
-    const label = findStatusBarClockLabel(app, classes);
-    if (!isNonZero(label)) { log("statbar: no status bar label instance found"); return false; }
-    log("statbar: label=0x" + u64(label).toString(16));
+    const NSObject = Native.callSymbol("objc_getClass", "NSObject");
+    if (isObjcReceiver(NSObject)) {
+      Native.callSymbol("objc_msgSend",
+        NSObject,
+        sel("cancelPreviousPerformRequestsWithTarget:selector:object:"),
+        ctx,
+        sel("evaluateScript:"),
+        script);
+    }
+
+    // [ctx performSelector:@selector(evaluateScript:) withObject:script
+    //               afterDelay:STATBAR_LIVE_INTERVAL_SEC];
+    //   x0=ctx, x1=performSel, x2=evaluateSel, x3=script, d0=delay
+    Native.callSymbolFP("objc_msgSend", [
+      ctx,
+      sel("performSelector:withObject:afterDelay:"),
+      sel("evaluateScript:"),
+      script,
+    ], [STATBAR_LIVE_INTERVAL_SEC]);
+    return true;
+  }
+
+  // Helper: objc_msgSend with FP args. Routes (receiver, sel, ...fpArgs)
+  // through Native.callSymbolFP which writes d0..d7 in addition to x0..x7.
+  // This is what the v6/v7/v8 attempts needed all along - rather than
+  // building NSInvocation wrappers (which all autoreleased and died on
+  // JSC's pool drain), we just pass the doubles directly through the
+  // bridge that __invoking___ already supports.
+  function objcSendFP(receiver, selectorName, fpArgs) {
+    return Native.callSymbolFP("objc_msgSend",
+      [receiver, sel(selectorName)],
+      fpArgs);
+  }
+
+  // Round the overlay UILabel into a pill (corner radius = height/2).
+  // -[UIView layer] returns the strongly-held _layer ivar (+0 owned by
+  // the view, survives JSC pool drain). -[CALayer setCornerRadius:]
+  // takes a CGFloat (FP bridge). masksToBounds=YES so the rounded
+  // shape actually clips the background color rendering.
+  function applyOverlayPillShape(label) {
+    const layer = objc(label, "layer");
+    if (!isObjcReceiver(layer)) return false;
+    objcSendFP(layer, "setCornerRadius:", [STATBAR_WIN_H / 2]);
+    objc(layer, "setMasksToBounds:", 1n);
+    return true;
+  }
+
+  // Apply the smaller font + pill shape to a UILabel. Used by both
+  // first-install and cached-window paths so re-injects after these
+  // commits pick up the latest styling without invalidating the cache.
+  function applyOverlayStyle(label) {
+    const UIFont = Native.callSymbol("objc_getClass", "UIFont");
+    if (isObjcReceiver(UIFont)) {
+      const fontObj = Native.callSymbolFP("objc_msgSend",
+        [UIFont, sel("systemFontOfSize:")],
+        [STATBAR_FONT_PT]);
+      if (isObjcReceiver(fontObj)) objc(label, "setFont:", BigInt(fontObj));
+    }
+    applyOverlayPillShape(label);
+  }
+
+  function createStatBarOverlay() {
+    log("statbar: entry (v9 dedicated UIWindow via FP-reg bridge)");
+    const UIApplication = Native.callSymbol("objc_getClass", "UIApplication");
+    if (!isObjcReceiver(UIApplication)) { log("statbar: no UIApplication class"); return false; }
+    const sharedSel = sel("sharedApplication");
+    if (!isNonZero(sharedSel)) { log("statbar: no sharedApplication selector"); return false; }
+    const app = Native.callSymbol("objc_msgSend", UIApplication, sharedSel);
+    if (!isObjcReceiver(app)) { log("statbar: sharedApplication not a plausible ObjC pointer"); return false; }
 
     const text = buildStatBarText();
     log("statbar: text='" + text + "'");
+    const textObj = nsStrRetained(text);
+    if (!isObjcReceiver(textObj)) { log("statbar: nsStrRetained returned non-pointer"); return false; }
 
-    log("statbar: pre setText:");
-    objc(label, "setText:", nsStr(text));
-    log("statbar: post setText:");
+    // Persistence cache: associate the overlay UIWindow to
+    // sharedApplication via objc_setAssociatedObject (RETAIN_NONATOMIC=1)
+    // so re-injects find the same live window across runs. The key is
+    // a malloc'd byte cached in globalThis so the address is stable.
+    let assocKey = globalThis.__sbcust_statbar_assoc_key;
+    if (!assocKey) {
+      assocKey = Native.callSymbol("malloc", 1n);
+      if (!isNonZero(assocKey)) { log("statbar: malloc(1) for assocKey failed"); return false; }
+      globalThis.__sbcust_statbar_assoc_key = assocKey;
+    }
 
-    log("statbar: replace complete");
+    const cachedWin = Native.callSymbol("objc_getAssociatedObject", app, assocKey);
+    if (isObjcReceiver(cachedWin)) {
+      log("statbar: reusing cached overlay window 0x" + u64(cachedWin).toString(16));
+      const cachedLabel = objc(cachedWin, "viewWithTag:", BigInt(STATBAR_OVERLAY_TAG));
+      if (isObjcReceiver(cachedLabel)) {
+        objc(cachedLabel, "setText:", textObj);
+        // Re-apply frame + style each inject so layout/font/pill-shape
+        // changes take effect without invalidating the assoc'd window.
+        objcSendFP(cachedWin, "setFrame:", [STATBAR_WIN_X, STATBAR_WIN_Y, STATBAR_WIN_W, STATBAR_WIN_H]);
+        objcSendFP(cachedLabel, "setFrame:", [0, 0, STATBAR_WIN_W, STATBAR_WIN_H]);
+        applyOverlayStyle(cachedLabel);
+        objc(cachedWin, "setHidden:", 0n);
+        log("statbar: cached overlay text + frame + style updated, window unhidden");
+        return true;
+      }
+      log("statbar: cached window had no tagged label - recreating");
+    }
+
+    // First-install: tear down any leftover v4 subview attached to the
+    // clock label, then build the dedicated UIWindow.
+    const classes = resolveStatusBarClasses();
+    if (isObjcReceiver(classes.cls17) || isObjcReceiver(classes.cls16)) {
+      const clockLabel = findStatusBarClockLabel(app, classes);
+      if (isObjcReceiver(clockLabel)) {
+        const v4Leftover = objc(clockLabel, "viewWithTag:", BigInt(STATBAR_OVERLAY_TAG));
+        if (isObjcReceiver(v4Leftover)) {
+          log("statbar: removing v4 leftover overlay 0x" + u64(v4Leftover).toString(16));
+          objc(v4Leftover, "removeFromSuperview");
+        }
+      }
+    }
+
+    const keyWin = objc(app, "keyWindow");
+    if (!isObjcReceiver(keyWin)) { log("statbar: keyWindow nil"); return false; }
+    const scene = objc(keyWin, "windowScene");
+    if (!isObjcReceiver(scene)) { log("statbar: windowScene nil"); return false; }
+
+    // Build the dedicated UIWindow. Frame and windowLevel use the FP
+    // bridge - no NSInvocation, no NSValue, no autoreleased wrappers.
+    const UIWindow = Native.callSymbol("objc_getClass", "UIWindow");
+    if (!isObjcReceiver(UIWindow)) { log("statbar: no UIWindow class"); return false; }
+    const winAlloc = objc(UIWindow, "alloc");
+    if (!isObjcReceiver(winAlloc)) { log("statbar: UIWindow alloc failed"); return false; }
+    const win = objc(winAlloc, "initWithWindowScene:", scene);
+    if (!isObjcReceiver(win)) { log("statbar: UIWindow initWithWindowScene: failed"); return false; }
+    log("statbar: window=0x" + u64(win).toString(16));
+
+    // setFrame:(CGRect) - 4 doubles (HFA, route through d0..d3).
+    objcSendFP(win, "setFrame:", [STATBAR_WIN_X, STATBAR_WIN_Y, STATBAR_WIN_W, STATBAR_WIN_H]);
+    // setWindowLevel:(CGFloat) - single double in d0.
+    objcSendFP(win, "setWindowLevel:", [STATBAR_WIN_LEVEL]);
+    objc(win, "setUserInteractionEnabled:", 0n);
+
+    const UIColor = Native.callSymbol("objc_getClass", "UIColor");
+    if (isObjcReceiver(UIColor)) {
+      const clear = objc(UIColor, "clearColor");
+      if (isObjcReceiver(clear)) objc(win, "setBackgroundColor:", clear);
+    }
+
+    const UILabel = Native.callSymbol("objc_getClass", "UILabel");
+    if (!isObjcReceiver(UILabel)) { log("statbar: no UILabel class"); return false; }
+    const labelAlloc = objc(UILabel, "alloc");
+    if (!isObjcReceiver(labelAlloc)) { log("statbar: UILabel alloc failed"); return false; }
+    const overlay = objc(labelAlloc, "init");
+    if (!isObjcReceiver(overlay)) { log("statbar: UILabel init failed"); return false; }
+    log("statbar: overlay label=0x" + u64(overlay).toString(16));
+
+    objc(overlay, "setText:", textObj);
+    objc(overlay, "setTag:", BigInt(STATBAR_OVERLAY_TAG));
+    objc(overlay, "setTextAlignment:", 1n);
+    if (isObjcReceiver(UIColor)) {
+      const black = objc(UIColor, "blackColor");
+      const white = objc(UIColor, "whiteColor");
+      if (isObjcReceiver(black)) objc(overlay, "setBackgroundColor:", black);
+      if (isObjcReceiver(white)) objc(overlay, "setTextColor:", white);
+    }
+
+    // Smaller font + pill shape via FP bridge. UIKit caches system
+    // fonts at the class level so the autoreleased UIFont return
+    // survives JSC's pool drain before setFont: dispatches - same
+    // singleton-style retain pattern as +[UIColor blackColor].
+    applyOverlayStyle(overlay);
+
+    // Label fills the window (window-local coords).
+    objcSendFP(overlay, "setFrame:", [0, 0, STATBAR_WIN_W, STATBAR_WIN_H]);
+
+    objc(win, "addSubview:", overlay);
+
+    // canShowWhileLocked KVC removed: that key is on UIViewController,
+    // NOT UIWindow (verified via UIKitCore symbol dump - all
+    // _canShowWhileLocked impls live on UIVC subclasses). Setting it via
+    // KVC on a UIWindow raises NSUndefinedKeyException through
+    // -[NSObject(NSKeyValueCoding) setValue:forKey:] -> setValue:
+    // forUndefinedKey: -> _isUnarchived -> objc_exception_throw,
+    // SIGABRT (182216.ips). For CC-survival we'd need a UIVC subclass
+    // with -_canShowWhileLocked overridden, set as the window's root VC.
+    // Out of scope for this iteration; ship the overlay without CC
+    // resilience first.
+
+    objc(win, "setHidden:", 0n);
+    Native.callSymbol("objc_setAssociatedObject", app, assocKey, win, 1n);
+    log("statbar: dedicated overlay window installed via FP bridge");
     return true;
   }
 
@@ -1268,23 +1734,35 @@
     globalThis.__sbcust_statbar_consecutive_failures = 0;
     globalThis.__sbcust_statbar = function() {
       if (!ENABLE_STATBAR) return;
+      if (!ENABLE_STATBAR_DISPATCH) {
+        log("statbar: dispatch fenced - createStatBarOverlay disabled pending PAC fix (crash 2026-05-02-020440)");
+        return;
+      }
       try {
         const ok = createStatBarOverlay();
         if (ok) {
           globalThis.__sbcust_statbar_consecutive_failures = 0;
+          // Live refresh: schedule the next tick. After 3 consecutive
+          // failures we stop scheduling so a broken state doesn't churn
+          // the main thread forever.
+          scheduleStatBarRefresh();
         } else {
           globalThis.__sbcust_statbar_consecutive_failures++;
           if (globalThis.__sbcust_statbar_consecutive_failures >= 3) {
-            log("statbar: 3 consecutive failures, halting loop to avoid crash churn");
-            globalThis.__sbcust_statbar_loop_active = false;
+            log("statbar: 3 consecutive failures, halting live-refresh loop");
+          } else {
+            // Retry the refresh on the next tick anyway - transient
+            // failures (e.g., status bar mid-rebuild) might resolve.
+            scheduleStatBarRefresh();
           }
         }
       } catch (e) {
         log("statbar err: " + String(e));
         globalThis.__sbcust_statbar_consecutive_failures++;
         if (globalThis.__sbcust_statbar_consecutive_failures >= 3) {
-          log("statbar: 3 consecutive failures, halting loop to avoid crash churn");
-          globalThis.__sbcust_statbar_loop_active = false;
+          log("statbar: 3 consecutive failures, halting live-refresh loop");
+        } else {
+          scheduleStatBarRefresh();
         }
       }
     };
@@ -1309,14 +1787,17 @@
     const testSB = Native.callSymbol("objc_getClass", "SBIconController");
     log("test SBIconController=0x" + u64(testSB).toString(16) + (testSB ? " (found)" : " (NOT FOUND - wrong process?)"));
 
-    log("about to runOnMainEvaluate (performSelectorOnMainThread) - PAC violation happens here if PAC context is stale");
-    runOnMainEvaluate("try{__sbcust_log('main-thread dispatch alive');__sbcust_apply_once('main-pass-1');}catch(e){__sbcust_log('main-pass-1 err: '+e);}");
-    // Bounce statbar through a separate performSelectorOnMainThread so it
-    // lands on a fresh runloop tick rather than piggybacking on the dock
-    // pass, which kicks off async UIKit layout work that can leave the
-    // main thread in a funky state for an immediate follow-up message.
-    runOnMainEvaluate("try{__sbcust_statbar();}catch(e){__sbcust_log('statbar dispatch err: '+e);}");
-    log("runOnMainEvaluate returned (async dispatch, no crash on injected thread)");
+    log("about to runOnMainEvaluate (combined apply_once + statbar)");
+    // Single combined dispatch: apply_once and statbar in one main-thread
+    // script. Two separate runOnMainEvaluate calls (the prior pattern)
+    // expose a race between the worker's dispatch return path and main's
+    // concurrent bridge use - 141546.ips caught the worker mid-second-
+    // dispatch with main 115ms into running apply_once, both writing to
+    // callBuff and scrambling each other's args. One bridge call from
+    // the worker means there's no second dispatch to overlap with main's
+    // execution; after this returns the worker has zero further bridge
+    // calls to make and just exits cleanly.
+    runOnMainEvaluate("try{__sbcust_log('main-thread dispatch alive');__sbcust_apply_once('main-pass-1');__sbcust_statbar();}catch(e){__sbcust_log('combined-dispatch err: '+e);}");
 
     if (ENABLE_SECOND_PASS) {
       Native.callSymbol("usleep", 1200000);
@@ -1342,7 +1823,7 @@
     // the injected worker thread just lives in the sleep/dispatch cycle
     // until either the hard cap is hit or another code path clears
     // __sbcust_statbar_loop_active.
-    if (ENABLE_STATBAR) {
+    if (ENABLE_STATBAR && ENABLE_STATBAR_REPEAT_LOOP) {
       globalThis.__sbcust_statbar_loop_active = true;
       log("statbar: entering repeat loop (interval=" + STATBAR_LOOP_INTERVAL_US + "us max=" + STATBAR_LOOP_MAX_ITERS + ")");
       let tick = 0;
@@ -1364,6 +1845,8 @@
         tick++;
       }
       log("statbar: loop exited after " + tick + " ticks (active=" + !!globalThis.__sbcust_statbar_loop_active + ")");
+    } else if (ENABLE_STATBAR) {
+      log("statbar: repeat loop disabled; snapshot dispatch only");
     } else if (ENABLE_GRID_REAPPLY_LOOP) {
       // Statbar is off but grid reapply is on - run a dedicated loop at a
       // slightly tighter interval. Same injected-thread usleep + main-thread
