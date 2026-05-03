@@ -1132,11 +1132,12 @@
     return result;
   }
 
-  // Live network speed (download / upload MB/s) from interface byte
+  // Live network speed (download / upload KB/s) from interface byte
   // counters via getifaddrs. The kernel exposes per-interface ifi_ibytes
   // / ifi_obytes counters in struct if_data; we sum across non-loopback
   // interfaces, snapshot the totals each tick, and divide the delta by
-  // elapsed seconds to get instantaneous bytes/sec.
+  // elapsed seconds to get instantaneous bytes/sec, then by 1024 for
+  // kilobytes/sec.
   //
   // Layout:
   //   struct ifaddrs {                 // 56-byte struct on arm64
@@ -1222,8 +1223,8 @@
     if (din < 0n) din = 0n;
     if (dout < 0n) dout = 0n;
 
-    out.down = Number(din) / dt / (1024 * 1024);
-    out.up = Number(dout) / dt / (1024 * 1024);
+    out.down = Number(din) / dt / 1024;
+    out.up = Number(dout) / dt / 1024;
     return out;
   }
 
@@ -1503,11 +1504,12 @@
   // edge a few points under the island's bottom curve so the text
   // doesn't kiss the silhouette.
   //
-  // Pill width is content-driven: with net speed shown the text is
-  // ~30 chars at 11.5pt ("98.60{deg}F | 7.00GB | {dn}1.23 {up}0.45"),
-  // needs ~210pt; without net it's ~16 chars ("98.60{deg}F | 7.00GB"),
-  // 130pt is plenty. Pick at install-time based on STATBAR_SHOW_NET so
-  // the pill always hugs its content.
+  // Pill width is content-driven: with net speed shown the worst-case
+  // text is ~38 chars at 11.5pt
+  // ("98.60{deg}F | 7.00GB | {dn}12345.67 {up}1234.56" - heavy
+  // wifi/cellular peak), needs ~240pt; without net it's ~16 chars
+  // ("98.60{deg}F | 7.00GB"), 130pt is plenty. Pick at install-time
+  // based on STATBAR_SHOW_NET so the pill always hugs its content.
   const STATBAR_WIN_Y = 54;
   const STATBAR_WIN_H = 18;
 
@@ -1521,7 +1523,7 @@
   // "off" / unchecked / undefined leaves net visible.
   const STATBAR_SHOW_NET = !(globalThis.__sbc_statbar_hide_net === 1 || globalThis.__sbc_statbar_hide_net === true);
 
-  const STATBAR_WIN_W = STATBAR_SHOW_NET ? 210 : 130;
+  const STATBAR_WIN_W = STATBAR_SHOW_NET ? 240 : 130;
   const STATBAR_WIN_X = (440 - STATBAR_WIN_W) / 2;
 
   // Font size for the overlay text. Smaller than UILabel's default
