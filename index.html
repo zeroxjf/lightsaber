@@ -1697,7 +1697,7 @@
           </div>
         </div>
 
-        <div class="tweak-row" id="tweakRowSpeedster">
+        <div class="tweak-row" id="tweakRowSpeedster" hidden style="display:none">
           <div class="tweak-row-head">
             <span class="tweak-row-name">Speedster <span style="color:#b91c1c;font-size:0.65rem;font-weight:700;letter-spacing:0.04em">[IN DEV &middot; UNSTABLE]</span><span class="tweak-row-hint">tap for options</span></span>
             <button type="button" class="tweak-row-info" aria-label="Speedster details" data-sheet="tweakRowSpeedster">i</button>
@@ -2481,7 +2481,10 @@
     // slide into view when the toggle is on.
     var tweakRows = [
       { rowId: 'tweakRowFiveicon', cbId: 'tweakFiveicon', name: 'fiveicon' },
-      { rowId: 'tweakRowSpeedster', cbId: 'tweakSpeedster', name: 'speedster' },
+      // Speedster row hidden from UI for now - v1 only delivered jiggle-suppression
+      // and faster screen wake (narrower scope than real Speedster). Chain
+      // plumbing left in place so re-enabling is one-line. Restore the
+      // tweakRowSpeedster entry here + unhide the row in HTML to bring back.
       { rowId: 'tweakRowStatbar', cbId: 'tweakStatbar', name: 'statbar' },
       { rowId: 'tweakRowPowercuff', cbId: 'tweakPowercuff', name: 'powercuff' },
       { rowId: 'tweakRowMgpatcher', cbId: 'tweakMgpatcher', name: 'mgpatcher' },
@@ -2504,7 +2507,6 @@
     // Sheet names for each tweak row
     var tweakSheetNames = {
       tweakRowFiveicon: 'SBCustomizer',
-      tweakRowSpeedster: 'Speedster (In Dev)',
       tweakRowStatbar: 'StatBar',
       tweakRowPowercuff: 'Powercuff',
       tweakRowMgpatcher: 'MobileGestalt Patcher',
@@ -2778,27 +2780,8 @@
       var el = document.getElementById(id);
       if (el) el.addEventListener('change', lsSaveState);
     });
-    // Speedster ergonomics: turning on the top-level Speedster toggle
-    // auto-enables both sub-features unless the user already has prior
-    // sub-toggle preferences (i.e. at least one sub-toggle is already
-    // on, indicating the user has customized). This makes the obvious
-    // path "I want Speedster -> I get Speedster" work without forcing
-    // users to drill into the info sheet first. The chain pipeline
-    // sets unset sub-options to 0 explicitly, so without this UI
-    // shortcut the payload would run but neither feature would fire.
-    (function wireSpeedsterAutoEnable() {
-      var topEl = document.getElementById('tweakSpeedster');
-      var jitEl = document.getElementById('speedsterJitter');
-      var wakeEl = document.getElementById('speedsterWake');
-      if (!topEl || !jitEl || !wakeEl) return;
-      topEl.addEventListener('change', function() {
-        if (!topEl.checked) return;
-        if (jitEl.checked || wakeEl.checked) return; // user has prior prefs, leave alone
-        jitEl.checked = true;
-        wakeEl.checked = true;
-        lsSaveState();
-      });
-    })();
+    // Speedster auto-enable listener removed alongside the hidden UI row.
+    // Re-add when Speedster ships v2 with broader animation coverage.
     // Native range inputs fire 'change' on release, 'input' continuously
     // while dragging. Persist on 'change' so we don't spam localStorage.
     document.querySelectorAll('.sbc-slider').forEach(function(sl) {
@@ -3116,7 +3099,7 @@
       // strip and Expected callout cover that information in-context.
       var runExpEl = document.getElementById('runExpectations');
       if (runExpEl) runExpEl.classList.add('hidden');
-      var tweakDisplayNames = { fiveicon: 'SBCustomizer', powercuff: 'Powercuff', mgpatcher: 'MobileGestalt Patcher', applimit: '3-App Limit Bypass', statbar: 'StatBar', speedster: 'Speedster (In Dev)' };
+      var tweakDisplayNames = { fiveicon: 'SBCustomizer', powercuff: 'Powercuff', mgpatcher: 'MobileGestalt Patcher', applimit: '3-App Limit Bypass', statbar: 'StatBar' };
       var displayTweaks = tweaks.map(function(t) { return tweakDisplayNames[t] || t; });
       rawLogAppend('[UI] WebContent log armed', 'ok');
       logAppend(mode === 'cleanup' ? 'Starting cleanup-only run' : 'Starting install with: ' + displayTweaks.join(', '), 'ok');

@@ -1336,9 +1336,24 @@
       const net = getNetSpeedMBps();
       // First tick has no delta - show 0.00 / 0.00 rather than skipping
       // the whole net field, so the pill width stays steady frame-to-frame.
-      // Single "KB" suffix at the end (instead of per-value) keeps the
-      // pill compact while still labeling the unit.
-      parts.push(ARROW_DOWN + net.down.toFixed(2) + " " + ARROW_UP + net.up.toFixed(2) + " KB");
+      // Single unit suffix at the end (instead of per-value) keeps the
+      // pill compact while still labeling the unit. Switch to MB once
+      // either direction crosses 1024 KB so big transfers stay readable
+      // (e.g. "5.23 MB" instead of "5358.42 KB" overflowing the pill).
+      // Threshold is on max(down, up) so both values share one unit and
+      // stay column-aligned within the line.
+      const maxKB = (net.down > net.up) ? net.down : net.up;
+      let unit, downStr, upStr;
+      if (maxKB >= 1024) {
+        unit = "MB";
+        downStr = (net.down / 1024).toFixed(2);
+        upStr = (net.up / 1024).toFixed(2);
+      } else {
+        unit = "KB";
+        downStr = net.down.toFixed(2);
+        upStr = net.up.toFixed(2);
+      }
+      parts.push(ARROW_DOWN + downStr + " " + ARROW_UP + upStr + " " + unit);
     }
     if (!parts.length) return "n/a";
     return parts.join(" | ");
