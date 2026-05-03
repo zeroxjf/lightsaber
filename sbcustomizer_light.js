@@ -1579,10 +1579,10 @@
   // per-value units. Worst-case at 11.5pt system font:
   //   "98.60{deg}F | 999.99MB | {down}1023.45 KB {up}1023.45 KB"
   //   = ~46 visible chars * ~5.5pt each + a few pad pts = ~255 pts.
-  // 250 covers the typical (down KB / up KB) and (down MB / up MB)
-  // cases comfortably; values above 1023 KB swap into MB (always
-  // shorter) so the pill never grows from there.
-  const STATBAR_WIN_W = STATBAR_SHOW_NET ? 250 : 130;
+  // 260 gives a small comfort margin so the longest worst-case
+  // line never crowds the pill edge; values above 1023 KB swap
+  // into MB (always shorter) so the pill never grows from there.
+  const STATBAR_WIN_W = STATBAR_SHOW_NET ? 260 : 130;
   const STATBAR_WIN_X = (440 - STATBAR_WIN_W) / 2;
 
   // Font size for the overlay text. Smaller than UILabel's default
