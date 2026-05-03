@@ -1365,21 +1365,25 @@
     }
     if (STATBAR_SHOW_NET) {
       const net = getNetSpeedMBps();
-      // Per-value units: each direction independently picks KB or MB
-      // based on whether THAT value crosses 1024 KB. Asymmetric traffic
-      // (download burst + idle upload) shows mixed units like
-      // "down 5.23 MB / up 12.34 KB". Numeric portion is padded to 7
-      // chars so the digits align identically whether the value is
-      // "0.00" or "1023.99" - the unit suffix (" KB" / " MB") is the
-      // same length, so the whole slot stays a fixed width.
+      // Whole-number throughput, per-direction. Sub-KB rates render in
+      // bytes (so 0-1023 are visible instead of "0.00 KB" forever);
+      // 1-1023 KB/s render as KB; 1024+ as MB. The token sits flush
+      // against its arrow with NO leading figure-space pad - small
+      // values like "0B" stay tight, large values like "1023KB" extend
+      // the slot rightward. The temp and RAM columns ahead of the net
+      // section are still padded, so the {down} arrow's position is
+      // stable; only {up} shifts right when {down} grows in digits.
       //
       // getNetSpeedMBps already clamps wraparound deltas to >= 0
       // (see CLAUDE.md "32-bit counter wraparound" note).
       function fmtNet(kbValue) {
-        if (kbValue >= 1024) {
-          return padLeft((kbValue / 1024).toFixed(2), 7) + " MB";
+        if (kbValue < 1) {
+          return Math.round(kbValue * 1024) + "B";
         }
-        return padLeft(kbValue.toFixed(2), 7) + " KB";
+        if (kbValue < 1024) {
+          return Math.round(kbValue) + "KB";
+        }
+        return Math.round(kbValue / 1024) + "MB";
       }
       parts.push(ARROW_DOWN + fmtNet(net.down) + " " + ARROW_UP + fmtNet(net.up));
     }
@@ -1602,14 +1606,14 @@
   // Width budget for the longest plausible single-line render with
   // per-value units AND figure-space numeric padding. Tabular digits
   // average wider than proportional letters in SF Pro (~6.5pt vs ~5pt
-  // at 11.5pt), and we now reserve full-width slots for every numeric
-  // field even when values are smaller than the slot. Worst-case
-  // padded render at 11.5pt monospacedDigit:
-  //   "  98.60{deg}F |   7.00GB | {down}   0.00 KB {up}   0.00 KB"
-  //   = ~45 visible cols * ~6pt avg = ~270 pts.
-  // 290 gives margin against per-device font-rendering variance and
-  // longer worst-case strings (e.g. low-mem MB / >1024 KB MB-side).
-  const STATBAR_WIN_W = STATBAR_SHOW_NET ? 290 : 140;
+  // at 11.5pt). With the whole-number / bytes-fallback net format
+  // each direction now occupies a 6-col padded slot (was 7-col digits
+  // + " KB" 3-col suffix = 10 cols). Worst-case padded render at
+  // 11.5pt monospacedDigit:
+  //   "  98.60{deg}F |   7.00GB | {down}1023KB {up}1023KB"
+  //   = ~37 visible cols * ~6pt avg = ~222 pts.
+  // 230 gives margin for per-device font-rendering variance.
+  const STATBAR_WIN_W = STATBAR_SHOW_NET ? 230 : 140;
   const STATBAR_WIN_X = (440 - STATBAR_WIN_W) / 2;
 
   // Font size for the overlay text. Smaller than UILabel's default
