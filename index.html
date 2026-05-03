@@ -2778,6 +2778,27 @@
       var el = document.getElementById(id);
       if (el) el.addEventListener('change', lsSaveState);
     });
+    // Speedster ergonomics: turning on the top-level Speedster toggle
+    // auto-enables both sub-features unless the user already has prior
+    // sub-toggle preferences (i.e. at least one sub-toggle is already
+    // on, indicating the user has customized). This makes the obvious
+    // path "I want Speedster -> I get Speedster" work without forcing
+    // users to drill into the info sheet first. The chain pipeline
+    // sets unset sub-options to 0 explicitly, so without this UI
+    // shortcut the payload would run but neither feature would fire.
+    (function wireSpeedsterAutoEnable() {
+      var topEl = document.getElementById('tweakSpeedster');
+      var jitEl = document.getElementById('speedsterJitter');
+      var wakeEl = document.getElementById('speedsterWake');
+      if (!topEl || !jitEl || !wakeEl) return;
+      topEl.addEventListener('change', function() {
+        if (!topEl.checked) return;
+        if (jitEl.checked || wakeEl.checked) return; // user has prior prefs, leave alone
+        jitEl.checked = true;
+        wakeEl.checked = true;
+        lsSaveState();
+      });
+    })();
     // Native range inputs fire 'change' on release, 'input' continuously
     // while dragging. Persist on 'change' so we don't spam localStorage.
     document.querySelectorAll('.sbc-slider').forEach(function(sl) {

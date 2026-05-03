@@ -1895,10 +1895,14 @@
   // caches directly. The transient setters are bypassed.
   function applySpeedster(passTag) {
     if (!ENABLE_SPEEDSTER) {
-      log("applySpeedster(" + passTag + ") skipped: ENABLE_SPEEDSTER=false");
+      log("applySpeedster(" + passTag + ") skipped: ENABLE_SPEEDSTER=false (top-level Speedster tweak not enabled)");
       return false;
     }
     log("applySpeedster(" + passTag + ") entered jitter=" + SPEEDSTER_SUPPRESS_JITTER + " fastWake=" + SPEEDSTER_FAST_WAKE);
+    if (!SPEEDSTER_SUPPRESS_JITTER && !SPEEDSTER_FAST_WAKE) {
+      log("applySpeedster(" + passTag + ") WARNING: top-level Speedster is on but BOTH sub-features are off - tweak will do nothing. Open the Speedster info sheet and toggle 'Suppress home-screen jitter' and/or 'Faster screen wake'.");
+      return false;
+    }
     let applied = 0;
 
     if (SPEEDSTER_SUPPRESS_JITTER) {
