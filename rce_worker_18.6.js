@@ -9939,6 +9939,7 @@ async function main() {
           try { globalThis.__sbc_hs_rows = (typeof data.ls_sbc_hs_rows === 'number') ? data.ls_sbc_hs_rows : 6; } catch (e) { globalThis.__sbc_hs_rows = 6; }
           try { globalThis.__sbc_statbar = (data.ls_sbc_statbar === 1 || data.ls_sbc_statbar === true) ? 1 : 0; } catch (e) { globalThis.__sbc_statbar = 0; }
           try { globalThis.__sbc_statbar_celsius = (data.ls_sbc_statbar_celsius === 1 || data.ls_sbc_statbar_celsius === true) ? 1 : 0; } catch (e) { globalThis.__sbc_statbar_celsius = 0; }
+          try { globalThis.__sbc_statbar_hide_net = (data.ls_sbc_statbar_hide_net === 1 || data.ls_sbc_statbar_hide_net === true) ? 1 : 0; } catch (e) { globalThis.__sbc_statbar_hide_net = 0; }
           try { globalThis.__sbc_hide_labels = (data.ls_sbc_hide_labels === 1 || data.ls_sbc_hide_labels === true) ? 1 : 0; } catch (e) { globalThis.__sbc_hide_labels = 0; }
           try { globalThis.__mgpatcher_mode = (typeof data.ls_mgpatcher_mode === 'string') ? data.ls_mgpatcher_mode : 'enable'; } catch (e) { globalThis.__mgpatcher_mode = 'enable'; }
           try { globalThis.__mg_flags = (typeof data.ls_mg_flags === 'string') ? data.ls_mg_flags : ''; } catch (e) { globalThis.__mg_flags = ''; }
@@ -10274,6 +10275,7 @@ async function main() {
             try { globalThis.__sbc_hs_rows = (typeof data.ls_sbc_hs_rows === 'number') ? data.ls_sbc_hs_rows : 6; } catch (e) { globalThis.__sbc_hs_rows = 6; }
             try { globalThis.__sbc_statbar = (data.ls_sbc_statbar === 1 || data.ls_sbc_statbar === true) ? 1 : 0; } catch (e) { globalThis.__sbc_statbar = 0; }
             try { globalThis.__sbc_statbar_celsius = (data.ls_sbc_statbar_celsius === 1 || data.ls_sbc_statbar_celsius === true) ? 1 : 0; } catch (e) { globalThis.__sbc_statbar_celsius = 0; }
+            try { globalThis.__sbc_statbar_hide_net = (data.ls_sbc_statbar_hide_net === 1 || data.ls_sbc_statbar_hide_net === true) ? 1 : 0; } catch (e) { globalThis.__sbc_statbar_hide_net = 0; }
             try { globalThis.__sbc_hide_labels = (data.ls_sbc_hide_labels === 1 || data.ls_sbc_hide_labels === true) ? 1 : 0; } catch (e) { globalThis.__sbc_hide_labels = 0; }
             try { globalThis.__mgpatcher_mode = (typeof data.ls_mgpatcher_mode === 'string') ? data.ls_mgpatcher_mode : 'enable'; } catch (e) { globalThis.__mgpatcher_mode = 'enable'; }
             try { globalThis.__mg_flags = (typeof data.ls_mg_flags === 'string') ? data.ls_mg_flags : ''; } catch (e) { globalThis.__mg_flags = ''; }

@@ -1132,6 +1132,101 @@
     return result;
   }
 
+  // Live network speed (download / upload MB/s) from interface byte
+  // counters via getifaddrs. The kernel exposes per-interface ifi_ibytes
+  // / ifi_obytes counters in struct if_data; we sum across non-loopback
+  // interfaces, snapshot the totals each tick, and divide the delta by
+  // elapsed seconds to get instantaneous bytes/sec.
+  //
+  // Layout:
+  //   struct ifaddrs {                 // 56-byte struct on arm64
+  //     struct ifaddrs *ifa_next;      // 0
+  //     char           *ifa_name;      // 8
+  //     unsigned int    ifa_flags;     // 16 (+4 pad to align next ptr)
+  //     struct sockaddr*ifa_addr;      // 24
+  //     struct sockaddr*ifa_netmask;   // 32
+  //     struct sockaddr*ifa_dstaddr;   // 40
+  //     void           *ifa_data;      // 48
+  //   };
+  //   struct sockaddr {                // first two bytes are sa_len, sa_family
+  //     u_int8_t        sa_len;        // 0
+  //     sa_family_t     sa_family;     // 1 (u_int8_t on iOS)
+  //     ...
+  //   };
+  //   struct if_data (returned in ifa_data when sa_family == AF_LINK=18):
+  //     ... 8 u_chars at 0..7
+  //     u_int32_t ifi_mtu, ifi_metric, ifi_baudrate, ifi_ipackets,
+  //               ifi_ierrors, ifi_opackets, ifi_oerrors, ifi_collisions
+  //     u_int32_t ifi_ibytes;          // 40
+  //     u_int32_t ifi_obytes;          // 44
+  //     ...
+  //
+  // 32-bit byte counters wrap at 4 GiB. At 1Hz tick + typical mobile
+  // throughput we never wrap mid-tick, but we clamp negative deltas
+  // (i.e. wraparound between snapshots) to 0 just in case.
+  function getNetSpeedMBps() {
+    const out = { down: 0, up: 0 };
+    const ptrSlot = Native.callSymbol("malloc", 8n);
+    if (!isNonZero(ptrSlot)) return out;
+    writeU64(ptrSlot, 0);
+    const rc = Native.callSymbol("getifaddrs", ptrSlot);
+    if (Number(rc) !== 0) {
+      Native.callSymbol("free", ptrSlot);
+      return out;
+    }
+    const head = Native.readPtr(ptrSlot);
+    Native.callSymbol("free", ptrSlot);
+
+    let totalIn = 0n;
+    let totalOut = 0n;
+    let cur = head;
+    let safety = 0;
+    while (isNonZero(cur) && safety < 64) {
+      safety++;
+      const next = Native.readPtr(cur);
+      const namePtr = Native.readPtr(cur + 8n);
+      const addrPtr = Native.readPtr(cur + 24n);
+      const dataPtr = Native.readPtr(cur + 48n);
+
+      if (isNonZero(addrPtr) && isNonZero(dataPtr) && isNonZero(namePtr)) {
+        // Read sa_family at byte 1 of sockaddr.
+        const head4 = Native.read(addrPtr, 4);
+        const sa_family = new Uint8Array(head4)[1];
+        if (sa_family === 18) { // AF_LINK
+          // Skip loopback interfaces (lo0, lo1, ...). IFNAMSIZ = 16
+          // is the cap, but every iOS interface name fits in 8 chars
+          // and is null-terminated.
+          const name = Native.readString(namePtr, 16);
+          if (name && name.indexOf("lo") !== 0) {
+            const ibytes = u64(Native.read32(dataPtr + 40n));
+            const obytes = u64(Native.read32(dataPtr + 44n));
+            totalIn += ibytes;
+            totalOut += obytes;
+          }
+        }
+      }
+      cur = next;
+    }
+    if (isNonZero(head)) Native.callSymbol("freeifaddrs", head);
+
+    const now = Date.now() / 1000.0;
+    const prev = globalThis.__statbar_net_prev;
+    globalThis.__statbar_net_prev = { time: now, ibytes: totalIn, obytes: totalOut };
+    if (!prev) return out;
+
+    const dt = now - prev.time;
+    if (dt <= 0) return out;
+
+    let din = totalIn - prev.ibytes;
+    let dout = totalOut - prev.obytes;
+    if (din < 0n) din = 0n;
+    if (dout < 0n) dout = 0n;
+
+    out.down = Number(din) / dt / (1024 * 1024);
+    out.up = Number(dout) / dt / (1024 * 1024);
+    return out;
+  }
+
   function findWindowScene(app) {
     // -[UIApplication connectedScenes] returns a copied NSSet whose
     // allObjects trampoline PAC-faults on our bridge (same slab/cache
@@ -1190,6 +1285,10 @@
     const freeRamGB = getFreeMemGB();
     const parts = [];
     const DEG = String.fromCharCode(0xC2) + String.fromCharCode(0xB0);
+    // U+2193 DOWNWARDS ARROW + U+2191 UPWARDS ARROW, encoded as UTF-8
+    // bytes via String.fromCharCode so JS source stays ASCII.
+    const ARROW_DOWN = String.fromCharCode(0xE2) + String.fromCharCode(0x86) + String.fromCharCode(0x93);
+    const ARROW_UP   = String.fromCharCode(0xE2) + String.fromCharCode(0x86) + String.fromCharCode(0x91);
     if (tempC !== null && tempC > 0) {
       if (STATBAR_USE_CELSIUS) {
         parts.push(tempC.toFixed(2) + DEG + "C");
@@ -1200,6 +1299,12 @@
     }
     if (freeRamGB > 0) {
       parts.push(freeRamGB.toFixed(2) + "GB");
+    }
+    if (STATBAR_SHOW_NET) {
+      const net = getNetSpeedMBps();
+      // First tick has no delta - show 0.00 / 0.00 rather than skipping
+      // the whole net field, so the pill width stays steady frame-to-frame.
+      parts.push(ARROW_DOWN + net.down.toFixed(2) + " " + ARROW_UP + net.up.toFixed(2));
     }
     if (!parts.length) return "n/a";
     return parts.join(" | ");
@@ -1394,21 +1499,30 @@
 
   // Position centered just below the Dynamic Island on iPhone 16 Pro
   // Max. Logical screen 440x956pt. Dynamic Island sits ~y=11..48 with
-  // its center around x=220 (screen midpoint). Overlay 130pt wide -
-  // tight enough that the pill hugs the text without slack on the
-  // sides, still room for "98.60{deg}F | 7.00GB" (~16 chars at 11.5pt
-  // including the rounded pill padding). Centered: x=(440-130)/2=155.
-  // y=54 places the top edge a few points under the island's bottom
-  // curve so the text doesn't kiss the silhouette.
-  const STATBAR_WIN_X = 155;
+  // its center around x=220 (screen midpoint). y=54 places the top
+  // edge a few points under the island's bottom curve so the text
+  // doesn't kiss the silhouette.
+  //
+  // Pill width is content-driven: with net speed shown the text is
+  // ~30 chars at 11.5pt ("98.60{deg}F | 7.00GB | {dn}1.23 {up}0.45"),
+  // needs ~210pt; without net it's ~16 chars ("98.60{deg}F | 7.00GB"),
+  // 130pt is plenty. Pick at install-time based on STATBAR_SHOW_NET so
+  // the pill always hugs its content.
   const STATBAR_WIN_Y = 54;
-  const STATBAR_WIN_W = 130;
   const STATBAR_WIN_H = 18;
 
-  // Temperature unit. Default Fahrenheit. Set via the SBCustomizer UI
-  // (sbcStatbarCelsius checkbox) which threads through the chain
+  // Temperature unit. Default Fahrenheit. Set via the StatBar tweak's
+  // sheet (statbarCelsius checkbox) which threads through the chain
   // delivery as globalThis.__sbc_statbar_celsius (0/1).
   const STATBAR_USE_CELSIUS = (globalThis.__sbc_statbar_celsius === 1 || globalThis.__sbc_statbar_celsius === true);
+
+  // Network speed default-on. statbarHideNet UI toggle threads through
+  // chain as globalThis.__sbc_statbar_hide_net (0/1) - inverted so
+  // "off" / unchecked / undefined leaves net visible.
+  const STATBAR_SHOW_NET = !(globalThis.__sbc_statbar_hide_net === 1 || globalThis.__sbc_statbar_hide_net === true);
+
+  const STATBAR_WIN_W = STATBAR_SHOW_NET ? 210 : 130;
+  const STATBAR_WIN_X = (440 - STATBAR_WIN_W) / 2;
 
   // Font size for the overlay text. Smaller than UILabel's default
   // 17pt system font - 11.5pt comfortably fits the formatted string

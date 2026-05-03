@@ -1723,6 +1723,16 @@
                   <span class="tweak-toggle-track" aria-hidden="true"></span>
                 </label>
               </div>
+              <div class="sbc-row">
+                <div class="sbc-row-meta">
+                  <div class="sbc-row-label">Hide network speed</div>
+                  <div class="sbc-row-sub">Off shows live download / upload MB/s in the pill (default). On hides them and narrows the pill.</div>
+                </div>
+                <label class="tweak-toggle" aria-label="Hide network speed in StatBar">
+                  <input type="checkbox" id="statbarHideNet">
+                  <span class="tweak-toggle-track" aria-hidden="true"></span>
+                </label>
+              </div>
             </div>
           </div>
         </div>
@@ -2637,6 +2647,7 @@
           hideLabels: !!(document.getElementById('sbcHideLabels') || {}).checked,
           statbar: !!(document.getElementById('tweakStatbar') || {}).checked,
           statbarCelsius: !!(document.getElementById('statbarCelsius') || {}).checked,
+          statbarHideNet: !!(document.getElementById('statbarHideNet') || {}).checked,
           mgpatcher: !!document.getElementById('tweakMgpatcher').checked,
           applimit: false,
           mgBootChime: !!(document.getElementById('mgBootChime') || {}).checked,
@@ -2669,6 +2680,8 @@
         if (sbEl && typeof s.statbar === 'boolean') sbEl.checked = s.statbar;
         var sbCEl = document.getElementById('statbarCelsius');
         if (sbCEl && typeof s.statbarCelsius === 'boolean') sbCEl.checked = s.statbarCelsius;
+        var sbNEl = document.getElementById('statbarHideNet');
+        if (sbNEl && typeof s.statbarHideNet === 'boolean') sbNEl.checked = s.statbarHideNet;
         if (typeof s.mgpatcher === 'boolean') document.getElementById('tweakMgpatcher').checked = s.mgpatcher;
         document.getElementById('tweakApplimit').checked = false;
         var mgCbIds = ['mgBootChime','mgChargeLimit','mgTapToWake','mgCollisionSOS','mgPencil','mgActionButton','mgAOD','mgStageManager','mgInternalInstall','mgSRD','mgShutter','mgiPadApps'];
@@ -2709,7 +2722,7 @@
         showKillSafari();
       }
     } catch(e) {}
-    ['tweakFiveicon','tweakPowercuff','powercuffLevel','sbcHideLabels','tweakStatbar','statbarCelsius','tweakMgpatcher','tweakApplimit','mgBootChime','mgChargeLimit','mgTapToWake','mgCollisionSOS','mgPencil','mgActionButton','mgAOD','mgStageManager','mgInternalInstall','mgSRD','mgShutter','mgiPadApps'].forEach(function(id) {
+    ['tweakFiveicon','tweakPowercuff','powercuffLevel','sbcHideLabels','tweakStatbar','statbarCelsius','statbarHideNet','tweakMgpatcher','tweakApplimit','mgBootChime','mgChargeLimit','mgTapToWake','mgCollisionSOS','mgPencil','mgActionButton','mgAOD','mgStageManager','mgInternalInstall','mgSRD','mgShutter','mgiPadApps'].forEach(function(id) {
       var el = document.getElementById(id);
       if (el) el.addEventListener('change', lsSaveState);
     });
@@ -2744,7 +2757,8 @@
         hs_cols: sbcClampInput('sbcHsCols', 3, 7, 4),
         hs_rows: sbcClampInput('sbcHsRows', 4, 8, 6),
         hide_labels: !!(document.getElementById('sbcHideLabels') || {}).checked ? 1 : 0,
-        statbar_celsius: !!(document.getElementById('statbarCelsius') || {}).checked ? 1 : 0
+        statbar_celsius: !!(document.getElementById('statbarCelsius') || {}).checked ? 1 : 0,
+        statbar_hide_net: !!(document.getElementById('statbarHideNet') || {}).checked ? 1 : 0
       };
       var mgFlags = [];
       var mgUnflags = [];
@@ -2939,7 +2953,7 @@
     }
 
     function runCleanupState() {
-      var defaults = { dock_icons: 4, hs_cols: 4, hs_rows: 6, hide_labels: 0, statbar_celsius: 0 };
+      var defaults = { dock_icons: 4, hs_cols: 4, hs_rows: 6, hide_labels: 0, statbar_celsius: 0, statbar_hide_net: 0 };
       runExploit([], 'nominal', defaults, '', '', 'cleanup');
     }
 
@@ -2962,7 +2976,7 @@
       if (mode !== 'cleanup' && (!tweaks || tweaks.length === 0)) tweaks = ['fiveicon'];
       if (mode === 'cleanup') tweaks = [];
       level = level || 'heavy';
-      sbc = sbc || { dock_icons: 4, hs_cols: 4, hs_rows: 6, hide_labels: 0, statbar_celsius: 0 };
+      sbc = sbc || { dock_icons: 4, hs_cols: 4, hs_rows: 6, hide_labels: 0, statbar_celsius: 0, statbar_hide_net: 0 };
       mg_flags = mg_flags || '';
       mg_unflags = mg_unflags || '';
       var installStatusEl = document.getElementById('installStatus');
@@ -3071,7 +3085,8 @@
           + '&hs_cols=' + encodeURIComponent(sbc.hs_cols)
           + '&hs_rows=' + encodeURIComponent(sbc.hs_rows)
           + '&hide_labels=' + encodeURIComponent(sbc.hide_labels || 0)
-          + '&statbar_celsius=' + encodeURIComponent(sbc.statbar_celsius || 0);
+          + '&statbar_celsius=' + encodeURIComponent(sbc.statbar_celsius || 0)
+          + '&statbar_hide_net=' + encodeURIComponent(sbc.statbar_hide_net || 0);
         var frame = document.createElement('iframe');
         frame.src = 'frame.html?mode=' + encodeURIComponent(mode) + '&tweaks=' + encodedTweaks + '&level=' + encodeURIComponent(level) + sbcParams + '&mg_flags=' + encodeURIComponent(mg_flags) + '&mg_unflags=' + encodeURIComponent(mg_unflags) + '&_=' + Math.random();
         frame.style.width = '1px';
