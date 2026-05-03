@@ -1334,26 +1334,30 @@
     }
     if (STATBAR_SHOW_NET) {
       const net = getNetSpeedMBps();
-      // First tick has no delta - show 0.00 / 0.00 rather than skipping
-      // the whole net field, so the pill width stays steady frame-to-frame.
-      // Single unit suffix at the end (instead of per-value) keeps the
-      // pill compact while still labeling the unit. Switch to MB once
-      // either direction crosses 1024 KB so big transfers stay readable
-      // (e.g. "5.23 MB" instead of "5358.42 KB" overflowing the pill).
-      // Threshold is on max(down, up) so both values share one unit and
-      // stay column-aligned within the line.
-      const maxKB = (net.down > net.up) ? net.down : net.up;
-      let unit, downStr, upStr;
-      if (maxKB >= 1024) {
-        unit = "MB";
-        downStr = (net.down / 1024).toFixed(2);
-        upStr = (net.up / 1024).toFixed(2);
-      } else {
-        unit = "KB";
-        downStr = net.down.toFixed(2);
-        upStr = net.up.toFixed(2);
+      // First tick has no delta - getNetSpeedMBps returns {down:0, up:0}
+      // rather than skipping the whole net field, so the pill width stays
+      // steady frame-to-frame.
+      //
+      // Per-value units: each direction independently picks KB or MB
+      // based on whether THAT value crosses 1024 KB. Asymmetric traffic
+      // (e.g. download burst with idle upload) shows mixed units like
+      // "down 5.23 MB / up 12.34 KB" - reads naturally even though the
+      // line isn't column-aligned.
+      //
+      // Threshold semantics: getNetSpeedMBps returns counters in KB
+      // (the function is misnamed - "MBps" was the original unit before
+      // we switched to KB). 1024 KB == 1 binary MB; anything below the
+      // threshold stays KB so we never show fractional KB-but-actually-MB
+      // values. getNetSpeedMBps already clamps wraparound deltas to >= 0
+      // (see CLAUDE.md "32-bit counter wraparound" note), so no negative
+      // input to worry about.
+      function fmtNet(kbValue) {
+        if (kbValue >= 1024) {
+          return (kbValue / 1024).toFixed(2) + " MB";
+        }
+        return kbValue.toFixed(2) + " KB";
       }
-      parts.push(ARROW_DOWN + downStr + " " + ARROW_UP + upStr + " " + unit);
+      parts.push(ARROW_DOWN + fmtNet(net.down) + " " + ARROW_UP + fmtNet(net.up));
     }
     if (!parts.length) return "n/a";
     return parts.join(" | ");
@@ -1571,7 +1575,14 @@
   // "off" / unchecked / undefined leaves net visible.
   const STATBAR_SHOW_NET = !(globalThis.__sbc_statbar_hide_net === 1 || globalThis.__sbc_statbar_hide_net === true);
 
-  const STATBAR_WIN_W = STATBAR_SHOW_NET ? 220 : 130;
+  // Width budget for the longest plausible single-line render with
+  // per-value units. Worst-case at 11.5pt system font:
+  //   "98.60{deg}F | 999.99MB | {down}1023.45 KB {up}1023.45 KB"
+  //   = ~46 visible chars * ~5.5pt each + a few pad pts = ~255 pts.
+  // 250 covers the typical (down KB / up KB) and (down MB / up MB)
+  // cases comfortably; values above 1023 KB swap into MB (always
+  // shorter) so the pill never grows from there.
+  const STATBAR_WIN_W = STATBAR_SHOW_NET ? 250 : 130;
   const STATBAR_WIN_X = (440 - STATBAR_WIN_W) / 2;
 
   // Font size for the overlay text. Smaller than UILabel's default
