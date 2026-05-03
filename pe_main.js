@@ -1454,6 +1454,11 @@
           if (wired_pages.indexOf(wired_page) == -1) {
             wired_pages.push(wired_page);
             let idx = wired_mapping_entries_addresses.indexOf(wired_page);
+            if (idx == -1) {
+              LOG(`[-] Found untracked wired_page; skipping dealloc: ${wired_page.hex()}`);
+              seeking_offset += PAGE_SIZE;
+              continue;
+            }
             wired_mapping_entries_addresses.splice(idx, 1);
             uwrite64(wired_page, 0n);
             uwrite64(wired_page + 0x8n, 0n);
