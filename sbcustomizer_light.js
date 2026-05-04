@@ -1365,25 +1365,32 @@
     }
     if (STATBAR_SHOW_NET) {
       const net = getNetSpeedMBps();
-      // Whole-number throughput, per-direction. Sub-KB rates render in
-      // bytes (so 0-1023 are visible instead of "0.00 KB" forever);
-      // 1-1023 KB/s render as KB; 1024+ as MB. The token sits flush
-      // against its arrow with NO leading figure-space pad - small
-      // values like "0B" stay tight, large values like "1023KB" extend
-      // the slot rightward. The temp and RAM columns ahead of the net
-      // section are still padded, so the {down} arrow's position is
-      // stable; only {up} shifts right when {down} grows in digits.
+      // Whole-number throughput, per-direction. Sub-KB rates render
+      // in bytes (so 0-1023 stay visible instead of pinned at
+      // "0.00 KB"), 1-1023 KB/s as KB, 1024+ as MB. Each slot is
+      // figure-space padLeft'd to a fixed 6-col width so the digits
+      // and unit suffix are right-aligned within the slot - units
+      // line up vertically across ticks ("    0B" / "1023KB" /
+      // "   1MB" all end at the same column), and the total
+      // content width never changes regardless of values, so the
+      // pill never appears to "breathe" between renders.
+      //
+      // 6 cols covers the worst case "1023KB" / "999MB"; getting
+      // up to those values is a strong-throughput edge case but
+      // still has to fit cleanly.
       //
       // getNetSpeedMBps already clamps wraparound deltas to >= 0
       // (see CLAUDE.md "32-bit counter wraparound" note).
       function fmtNet(kbValue) {
+        let token;
         if (kbValue < 1) {
-          return Math.round(kbValue * 1024) + "B";
+          token = Math.round(kbValue * 1024) + "B";
+        } else if (kbValue < 1024) {
+          token = Math.round(kbValue) + "KB";
+        } else {
+          token = Math.round(kbValue / 1024) + "MB";
         }
-        if (kbValue < 1024) {
-          return Math.round(kbValue) + "KB";
-        }
-        return Math.round(kbValue / 1024) + "MB";
+        return padLeft(token, 6);
       }
       parts.push(ARROW_DOWN + fmtNet(net.down) + " " + ARROW_UP + fmtNet(net.up));
     }
