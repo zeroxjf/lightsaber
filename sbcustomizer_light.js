@@ -1612,15 +1612,17 @@
 
   // Width budget for the longest plausible single-line render with
   // per-value units AND figure-space numeric padding. Tabular digits
-  // average wider than proportional letters in SF Pro (~6.5pt vs ~5pt
-  // at 11.5pt). With the whole-number / bytes-fallback net format
-  // each direction now occupies a 6-col padded slot (was 7-col digits
-  // + " KB" 3-col suffix = 10 cols). Worst-case padded render at
-  // 11.5pt monospacedDigit:
+  // in SF Pro at 11.5pt with monospacedDigit average ~6.4pt of advance
+  // each (wider than proportional letters), and the figure-space pad
+  // glyph matches that. With the whole-number / bytes-fallback net
+  // format each direction occupies a 6-col padLeft'd slot:
   //   "  98.60{deg}F |   7.00GB | {down}1023KB {up}1023KB"
-  //   = ~37 visible cols * ~6pt avg = ~222 pts.
-  // 230 gives margin for per-device font-rendering variance.
-  const STATBAR_WIN_W = STATBAR_SHOW_NET ? 230 : 140;
+  //   = 37 visible cols * ~6.4pt = ~237 pts before margin.
+  // 260 gives ~23pt of slack for per-device rendering variance and
+  // the rounded pill end-caps that visually consume a few points
+  // on each side. Earlier 230 was too tight - the up-slot was
+  // truncating to "...".
+  const STATBAR_WIN_W = STATBAR_SHOW_NET ? 260 : 140;
   const STATBAR_WIN_X = (440 - STATBAR_WIN_W) / 2;
 
   // Font size for the overlay text. Smaller than UILabel's default
