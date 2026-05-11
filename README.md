@@ -95,6 +95,7 @@ powercuff_light.js      Powercuff payload
 sbcustomizer_light.js   SBCustomizer payload
 colorbanners_light.js   ColorBanners payload (WIP)
 syslog.py               Device syslog capture helper
+respring.html           Resprings your device without an exploit
 ```
 
 ## Credits
@@ -105,6 +106,7 @@ syslog.py               Device syslog capture helper
 - [rpetrich](https://github.com/rpetrich/Powercuff) — Powercuff tweak
 - [34306](https://github.com/34306) & [khanhduytran0](https://github.com/khanhduytran0) — [site design](http://34306.lol/darksword/) reference
 - [@cro4js](https://twitter.com/cro4js) — UI suggestions
+- [neonmodder123](https://github.com/neonmodder123) — Respring Method
 
 ## License
 
