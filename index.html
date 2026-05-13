@@ -1851,7 +1851,7 @@
       <div class="install-zone">
         <button id="runBtn" class="btn btn-run" onclick="confirmInstall()">Install Queue</button>
         <div class="install-secondary-actions">
-          <button type="button" class="btn-clear-queue" id="cleanupStateBtn" onclick="confirmCleanupState()" hidden style="display:none">Clean kernel state</button>
+          <button type="button" class="btn-clear-queue" id="cleanupStateBtn" onclick="confirmCleanupState()">Clean kernel state</button>
           <button type="button" class="btn btn-respring" id="respringBtn" onclick="runRespring()">Respring</button>
           <button type="button" class="btn-clear-queue" id="clearQueueBtn">Clear queue</button>
         </div>
@@ -2085,6 +2085,7 @@
     var major = iosParts[0], minor = iosParts[1], patch = iosParts[2] || 0;
     var isIphone = /iPhone/.test(ua);
     var doneSignal = false;
+    var respringAfterCleanupPending = false;
     var logWatchdog = null;
     var lastLogTime = 0;
     var lastLogText = '';
@@ -2832,9 +2833,10 @@
 
     function markDone(message) {
       if (doneSignal) return;
+      var cleanupBeforeRespring = respringAfterCleanupPending;
       doneSignal = true;
       stopLogWatchdog();
-      logAppend(message || 'Install complete!', 'ok');
+      logAppend(message || (cleanupBeforeRespring ? 'Cleanup complete!' : 'Install complete!'), 'ok');
       var stageBanner = document.getElementById('logStageBanner');
       var stageText = document.getElementById('logStageText');
       var stageSub = document.getElementById('logStageSub');
@@ -2842,8 +2844,8 @@
         stageBanner.classList.remove('err');
         stageBanner.classList.add('done');
       }
-      if (stageText) stageText.textContent = message ? 'Check result' : 'Install complete';
-      if (stageSub) stageSub.textContent = message ? 'Safari returned after the expected run window' : 'All tweaks applied successfully';
+      if (stageText) stageText.textContent = cleanupBeforeRespring ? 'Cleanup complete' : (message ? 'Check result' : 'Install complete');
+      if (stageSub) stageSub.textContent = cleanupBeforeRespring ? 'Starting respring' : (message ? 'Safari returned after the expected run window' : 'All tweaks applied successfully');
       markAllPhasesDone();
       try { sessionStorage.removeItem('ls_running'); } catch(e) {}
       try { localStorage.setItem(RAW_LOG_ACTIVE_KEY, '0'); } catch(e) {}
@@ -2855,14 +2857,20 @@
       }
       var btn = document.getElementById('runBtn');
       if (btn) {
-        btn.textContent = message ? 'Check Result' : 'Installed';
+        btn.textContent = cleanupBeforeRespring ? 'Cleaned' : (message ? 'Check Result' : 'Installed');
         btn.className = 'btn btn-done';
+      }
+      if (respringAfterCleanupPending) {
+        respringAfterCleanupPending = false;
+        logAppend('Cleanup complete; starting respring.', 'ok');
+        launchRespringPayload();
       }
     }
 
     function markFailed(message) {
       if (doneSignal) return;
       doneSignal = true;
+      respringAfterCleanupPending = false;
       stopLogWatchdog();
       var text = message || 'Exploit failed. Force-quit Safari and try again.';
       logAppend(text, 'err');
@@ -2918,9 +2926,7 @@
       }
     }
 
-    function runRespring() {
-      if (!isIPhoneUserAgent()) return;
-      if (!confirm('Are you sure you want to respring?')) return;
+    function launchRespringPayload() {
       var statusEl = document.getElementById('installStatus');
       if (statusEl) {
         statusEl.className = 'install-status';
@@ -2955,6 +2961,15 @@
         '</body></html>'
       ].join('');
       document.body.appendChild(frame);
+    }
+
+    function runRespring() {
+      if (!isIPhoneUserAgent()) return;
+      if (!canRun) return;
+      if (!confirm('Run cleanup first, then respring?')) return;
+      respringAfterCleanupPending = true;
+      logAppend('Starting cleanup before respring.', 'ok');
+      runCleanupState();
     }
     initRespringButton();
 
@@ -3006,7 +3021,7 @@
 
     function confirmCleanupState() {
       if (!canRun) return;
-      if (!confirm('Run cleanup-only mode now? This runs the chain far enough to get kernel R/W, restores any Lightsaber cleanup record, then stops before applying tweaks.')) return;
+      if (!confirm('Run cleanup-only mode now? This runs the Safari chain far enough to get kernel R/W, repairs any saved Lightsaber cleanup record from an interrupted older run, then exits before applying tweaks.')) return;
       runCleanupState();
     }
 
@@ -3113,7 +3128,11 @@
       // reliable across versions, and the upstream chain expects the user to
       // notice that "Safari froze/crashed/reloaded means it worked" anyway.
       setTimeout(function() {
-        markDone('Expected run window elapsed. If Safari froze and crashed to the home screen, wait a few seconds and check the home screen for your tweaks.');
+        if (respringAfterCleanupPending) {
+          markDone('Cleanup run window elapsed; starting respring now.');
+        } else {
+          markDone('Expected run window elapsed. If Safari froze and crashed to the home screen, wait a few seconds and check the home screen for your tweaks.');
+        }
       }, 90000);
 
       // Force a layout flush on the status + button text writes above so
