@@ -2,6 +2,12 @@
 
 **[zeroxjf.github.io/lightsaber](https://zeroxjf.github.io/lightsaber/)**
 
+> ## ⚠ LightSaber is moving to [Cyanide](https://github.com/zeroxjf/cyanide-ios)
+>
+> Active development has moved to **[Cyanide](https://github.com/zeroxjf/cyanide-ios)** and LightSaber will be discontinued soon. Cyanide is built on a full **kernel exploit** instead of this WebKit + sandbox-escape userland chain, which makes it dramatically more reliable: no Safari freezes, no multi-try retries, no "webpage crashed" banners, no kernel panics from a flaky userland chain. The same tweaks (SBCustomizer, Powercuff, StatBar, App Library, etc.) install in one shot from a signed app and survive cleanly until respring/reboot.
+>
+> **Use LightSaber only if you can't run Cyanide on your device.** Otherwise, head to **[github.com/zeroxjf/cyanide-ios](https://github.com/zeroxjf/cyanide-ios)**.
+
 iOS 18.4 - 18.6.2 userland exploit chain with JavaScript injection that modifies SpringBoard and other system processes at runtime. Open source, derived from [DarkSword](https://iverify.io/blog/darksword-ios-exploit-kit-explained) with all malware communication stripped.
 
 > **This is not tweak injection.** It is runtime JS modification through an exploit chain. Changes persist until respring or reboot - this is not dylib injection like a full jailbreak.

@@ -1947,7 +1947,7 @@
       <a href="https://twitter.com/cro4js" target="_blank" rel="noopener">@cro4js</a> &mdash; UI suggestions
     </div>
 
-    <p class="version">v0.0.130</p>
+    <p class="version">v0.0.131</p>
   </div>
 
   <div class="tweak-sheet-backdrop" id="tweakSheetBackdrop"></div>
@@ -1961,19 +1961,20 @@
 
   <div id="introOverlay" class="overlay">
     <div class="dialog intro">
-      <h2>Before you continue</h2>
-      <p class="intro-sub">Please read the following before using LightSaber.</p>
-      <div class="disclaimer">
-        <strong>This is not tweak injection.</strong> This is JavaScript injection during the exploit chain that modifies processes at runtime. While changes persist until respring or reboot, this is not a standard dylib injection found with a full jailbreak &mdash; it is limited in nature and only some things can be done with it.
+      <h2>LightSaber is moving to Cyanide</h2>
+      <p class="intro-sub">Please read this before continuing.</p>
+      <div class="warning">
+        <strong>LightSaber will be discontinued soon.</strong> Active development has moved to <a href="https://github.com/zeroxjf/cyanide-ios" target="_blank" rel="noopener">Cyanide</a>, which is built on a full kernel exploit instead of this WebKit + sandbox-escape chain. Cyanide is dramatically more reliable: no Safari freezes, no multi-try chain runs, no kernel panics from a flaky userland exploit, and tweaks persist properly instead of being JS injected at runtime.
       </div>
       <div class="caution">
-        <strong>Compatibility warning.</strong> This may cause compatibility issues with modifications made by <a href="https://github.com/leminlimez/Nugget" target="_blank" rel="noopener">Nugget</a> and other similar tools. While I will work on resolving this, keep this in mind in the interim.
+        <strong>Why switch.</strong> LightSaber is a userland chain stitched together from DarkSword &mdash; it works, but SpringBoard crashes, page freezes, and "webpage crashed" retries are inherent to it. Cyanide runs from a signed app via the kernel exploit, so the same tweaks (SBCustomizer, Powercuff, StatBar, App Library, etc.) install in one shot and survive cleanly. Same author, same tweaks, far better foundation.
       </div>
-      <div class="warning">
-        <strong>Use caution.</strong> Derived from the <a href="https://iverify.io/blog/darksword-ios-exploit-kit-explained">DarkSword</a> exploit chain with all malware communication stripped and <a href="https://github.com/zeroxjf/LightSaber">fully open source</a>, but this is an inherently unstable chain and is <strong>not recommended for deployment on a daily driver</strong> unless you are willing to accept the risk. The chain may take several tries to succeed, SpringBoard may crash, the kernel may panic. Use at your own risk &mdash; I am not liable for any damage or data loss.
+      <div class="disclaimer">
+        <strong>If you still want to use LightSaber:</strong> this is not tweak injection &mdash; it's JavaScript injection during an exploit chain that modifies processes at runtime. Changes persist until respring or reboot. The chain may take several tries to succeed, SpringBoard may crash, the kernel may panic. Use at your own risk &mdash; I am not liable for any damage or data loss.
       </div>
       <div class="dialog-btns">
-        <button class="btn-confirm" onclick="dismissIntro()">I understand</button>
+        <button class="btn-confirm" onclick="window.open('https://github.com/zeroxjf/cyanide-ios','_blank','noopener')">Get Cyanide</button>
+        <button class="btn-cancel" onclick="dismissIntro()">Continue with LightSaber</button>
       </div>
     </div>
   </div>
@@ -2042,7 +2043,7 @@
     // sessionStorage would re-prompt on every Safari kill, which got annoying.
     (function() {
       var dismissed = false;
-      try { dismissed = localStorage.getItem('ls_intro_dismissed') === '1'; } catch(e) {}
+      try { dismissed = localStorage.getItem('ls_cyanide_notice_dismissed') === '1'; } catch(e) {}
       if (!dismissed) {
         var el = document.getElementById('introOverlay');
         if (el) el.className = 'overlay active';
@@ -2053,7 +2054,7 @@
       }
     })();
     function dismissIntro() {
-      try { localStorage.setItem('ls_intro_dismissed', '1'); } catch(e) {}
+      try { localStorage.setItem('ls_cyanide_notice_dismissed', '1'); } catch(e) {}
       var el = document.getElementById('introOverlay');
       if (el) el.className = 'overlay';
       window.scrollTo(0, 0);
