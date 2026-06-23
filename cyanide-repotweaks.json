@@ -1,0 +1,20 @@
+{
+  "repoName": "Lightsaber",
+  "author": "zeroxjf",
+  "tweaks": [
+    {
+      "id": "lightsaber.sbcustomizer",
+      "name": "SBCustomizer (Lightsaber)",
+      "description": "SpringBoard layout payload from Lightsaber: dock icons, home screen grid, and icon-label controls.",
+      "version": "1.0.0",
+      "scriptURL": "https://zeroxjf.github.io/lightsaber/sbcustomizer_light.js"
+    },
+    {
+      "id": "lightsaber.powercuff",
+      "name": "Powercuff (Lightsaber)",
+      "description": "Thermal throttling payload from Lightsaber, based on rpetrich Powercuff.",
+      "version": "1.0.0",
+      "scriptURL": "https://zeroxjf.github.io/lightsaber/powercuff_light.js"
+    }
+  ]
+}

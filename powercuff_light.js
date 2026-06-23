@@ -1,3 +1,4 @@
+// @param:text|__powercuff_level|Thermal mode (off/nominal/light/moderate/heavy)|nominal
 (() => {
   // powercuff_light.js
   //

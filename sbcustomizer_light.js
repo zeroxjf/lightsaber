@@ -1,3 +1,7 @@
+// @param:slider|__sbc_dock_icons|Dock icons|4|4-7
+// @param:slider|__sbc_hs_cols|Home columns|4|3-7
+// @param:slider|__sbc_hs_rows|Home rows|6|4-8
+// @param:switch|__sbc_hide_labels|Hide icon labels|false
 (() => {
   function _sbcClamp(v, lo, hi, def) {
     var n = Number(v);
