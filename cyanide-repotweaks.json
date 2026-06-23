@@ -27,7 +27,7 @@
       "id": "lightsaber.hide-dock",
       "name": "Hide Dock (Lightsaber)",
       "description": "Hides the SpringBoard dock background. Credits: MinePlayer16.",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "scriptURL": "https://zeroxjf.github.io/lightsaber/hide_dock.js"
     }
   ]
