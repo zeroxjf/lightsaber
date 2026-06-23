@@ -4,7 +4,8 @@
 // Served by the Lightsaber repo for Cyanide's repo-tweak install flow.
 
 (() => {
-    log("JS Hiding Dock...");
+    var HIDE_DOCK_VERSION = "1.0.2";
+    log("JS Hiding Dock v" + HIDE_DOCK_VERSION + "...");
 
     function isPtr(v) {
         return v !== 0 && v !== "0" && v !== "0x0" && v !== null && v !== undefined;
