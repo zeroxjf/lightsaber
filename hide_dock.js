@@ -45,7 +45,11 @@
         return call(nsString, "hasPrefix:", prefixObj) != 0;
     }
 
+    var cachedIOS26OrNew = null;
+
     function isIOS26OrNew() {
+        if (cachedIOS26OrNew !== null) return cachedIOS26OrNew;
+
         var deviceClass = r_class("UIDevice");
         var device = callKnown(deviceClass, "currentDevice");
         var version = callKnown(device, "systemVersion");
@@ -53,15 +57,20 @@
         // Keep this as an explicit 26+ gate: iOS 26 changed SpringBoardHome's
         // dock surface to the Liquid Glass SBDockView/SBFloatingDockView path.
         for (var major = 26; major <= 99; major++) {
-            if (hasPrefix(version, String(major))) return true;
+            if (hasPrefix(version, String(major))) {
+                cachedIOS26OrNew = true;
+                return true;
+            }
         }
 
         // If UIDevice probing is unavailable, fall back to classes observed in
         // the 26.0.1 SpringBoardHome dump provided with this fix.
         if (isPtr(r_class("SBHMultiplexingWrapperGlassBackgroundView")) ||
             isPtr(r_class("SBHomeScreenMaterialView"))) {
+            cachedIOS26OrNew = true;
             return true;
         }
+        cachedIOS26OrNew = false;
         return false;
     }
 
