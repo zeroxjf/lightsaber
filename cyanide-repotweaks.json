@@ -6,8 +6,22 @@
       "id": "lightsaber.sbcustomizer",
       "name": "SBCustomizer (Lightsaber)",
       "description": "SpringBoard layout payload from Lightsaber: dock icons, home screen grid, and icon-label controls.",
+      "version": "1.0.1",
+      "scriptURL": "https://zeroxjf.github.io/lightsaber/sbcustomizer_cyanide.js"
+    },
+    {
+      "id": "lightsaber.statbar",
+      "name": "StatBar (Lightsaber)",
+      "description": "Status bar overlay from Lightsaber with temperature and memory readout options.",
       "version": "1.0.0",
-      "scriptURL": "https://zeroxjf.github.io/lightsaber/sbcustomizer_light.js"
+      "scriptURL": "https://zeroxjf.github.io/lightsaber/statbar_cyanide.js"
+    },
+    {
+      "id": "lightsaber.speedster",
+      "name": "Speedster (Lightsaber)",
+      "description": "SpringBoard animation/settings payload from Lightsaber with jitter and wake-speed options.",
+      "version": "1.0.0",
+      "scriptURL": "https://zeroxjf.github.io/lightsaber/speedster_cyanide.js"
     },
     {
       "id": "lightsaber.powercuff",
