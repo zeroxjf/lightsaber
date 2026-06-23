@@ -3,3 +3,5 @@ CLAUDE.md
 syslog.py
 syslog.txt
 logs/syslog_*.txt
+
+AGENTS.override.md

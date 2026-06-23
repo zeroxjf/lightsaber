@@ -17,18 +17,18 @@
       "scriptURL": "https://zeroxjf.github.io/lightsaber/statbar_cyanide.js"
     },
     {
-      "id": "lightsaber.speedster",
-      "name": "Speedster (Lightsaber)",
-      "description": "SpringBoard animation/settings payload from Lightsaber with jitter and wake-speed options.",
-      "version": "1.0.0",
-      "scriptURL": "https://zeroxjf.github.io/lightsaber/speedster_cyanide.js"
-    },
-    {
       "id": "lightsaber.powercuff",
       "name": "Powercuff (Lightsaber)",
       "description": "Thermal throttling payload from Lightsaber, based on rpetrich Powercuff.",
       "version": "1.0.0",
       "scriptURL": "https://zeroxjf.github.io/lightsaber/powercuff_light.js"
+    },
+    {
+      "id": "lightsaber.hide-dock",
+      "name": "Hide Dock (Lightsaber)",
+      "description": "Hides the SpringBoard dock background. Credits: MinePlayer16.",
+      "version": "1.0.0",
+      "scriptURL": "https://zeroxjf.github.io/lightsaber/hide_dock.js"
     }
   ]
 }
