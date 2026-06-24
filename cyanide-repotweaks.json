@@ -1,12 +1,13 @@
 {
-  "repoName": "Lightsaber",
+  "repoName": "zeroxjf",
   "author": "zeroxjf",
   "tweaks": [
     {
       "id": "lightsaber.hide-dock",
-      "name": "Hide Dock (Lightsaber)",
-      "description": "Hides the dock area on SpringBoard. Move any icons out of the dock before applying \u2014 dock icons will be hidden too. Credits: MinePlayer16.",
+      "name": "Hide Dock",
+      "description": "Hides the dock background on the home screen. Warning: this also hides any app icons placed in the dock — move them to the home screen grid before applying. Respring to restore.",
       "version": "1.0.4",
+      "author": "@MinePlayer16",
       "scriptURL": "https://zeroxjf.github.io/lightsaber/hide_dock.js"
     }
   ]
